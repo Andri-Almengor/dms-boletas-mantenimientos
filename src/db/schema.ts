@@ -1,4 +1,4 @@
-export const LOCAL_SCHEMA_VERSION = 6;
+export const LOCAL_SCHEMA_VERSION = 7;
 
 export type LocalMigration = {
   version: number;
@@ -295,6 +295,17 @@ CREATE INDEX IF NOT EXISTS ix_local_files_scope_updated
   ON local_files (scope_key, updated_at);
 `;
 
+const MIGRATION_7 = String.raw`
+-- Firma y finalización son exclusivamente web desde esta versión.
+-- Cancelar intenciones móviles no resueltas de builds anteriores.
+DELETE FROM sync_outbox
+WHERE operation_kind IN ('SIGNATURE_UPLOAD', 'FINALIZE_PENDING')
+  AND status <> 'SUCCEEDED';
+
+DELETE FROM local_maintenance_signatures
+WHERE sync_status <> 'SYNCED';
+`;
+
 export const LOCAL_MIGRATIONS: LocalMigration[] = [
   { version: 1, sql: MIGRATION_1 },
   { version: 2, sql: MIGRATION_2 },
@@ -302,4 +313,5 @@ export const LOCAL_MIGRATIONS: LocalMigration[] = [
   { version: 4, sql: MIGRATION_4 },
   { version: 5, sql: MIGRATION_5 },
   { version: 6, sql: MIGRATION_6 },
+  { version: 7, sql: MIGRATION_7 },
 ];
