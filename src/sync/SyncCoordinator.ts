@@ -9,6 +9,7 @@ import {
 import {
   countOpenConflicts,
   countUnresolvedOutbox,
+  pruneCompletedOutbox,
   recoverInterruptedOutbox,
 } from '@/db/outboxRepository';
 import {
@@ -16,6 +17,8 @@ import {
   releaseSyncLease,
   renewSyncLease,
 } from '@/db/syncLockRepository';
+import { markSyncError } from '@/db/syncStateRepository';
+import { cleanupOrphanedMaintenanceFiles } from '@/services/maintenanceEvidenceStorage';
 import { DELTA_RESOURCES } from '@/sync/resourceRegistry';
 import {
   refreshStaticResources,
@@ -29,6 +32,8 @@ import {
 } from '@/sync/syncPolicy';
 import * as Network from 'expo-network';
 import type { SQLiteDatabase } from 'expo-sqlite';
+
+const COMPLETED_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type SyncPhase =
   | 'idle'
@@ -161,6 +166,9 @@ export async function runSyncCycle(
 
   const shouldContinue = () => input.trigger === 'manual'
     || isSyncAllowed(input.trigger);
+  const keepLeaseAlive = async () => {
+    await renewSyncLease(db, lease.ownerId);
+  };
 
   try {
     await recoverInterruptedOutbox(db, input.scopeKey);
@@ -173,6 +181,7 @@ export async function runSyncCycle(
         sessionToken: input.sessionToken,
         signal: input.signal,
         shouldContinue,
+        keepLeaseAlive,
       });
     }
     await renewSyncLease(db, lease.ownerId);
@@ -183,8 +192,9 @@ export async function runSyncCycle(
       sessionToken: input.sessionToken,
       signal: input.signal,
       shouldContinue,
+      keepLeaseAlive,
     });
-    await renewSyncLease(db, lease.ownerId);
+    await keepLeaseAlive();
 
     emit(input.onProgress, 'push', '3. Subiendo cambios pendientes');
     const pushResult = await pushOutbox(db, {
@@ -195,8 +205,9 @@ export async function runSyncCycle(
         emit(input.onProgress, 'push', `3. Subiendo cambios · ${processed} procesados`, processed);
       },
       shouldContinue,
+      keepLeaseAlive,
     });
-    await renewSyncLease(db, lease.ownerId);
+    await keepLeaseAlive();
 
     emit(input.onProgress, 'final-pull', '4. Comprobando cambios');
     const maintenanceConfig = DELTA_RESOURCES.find((item) => item.resource === 'maintenance');
@@ -207,8 +218,23 @@ export async function runSyncCycle(
         sessionToken: input.sessionToken,
         signal: input.signal,
         shouldContinue,
+        keepLeaseAlive,
       });
     }
+
+    await keepLeaseAlive();
+    const housekeepingBefore = new Date(
+      Date.now() - COMPLETED_OUTBOX_RETENTION_MS,
+    ).toISOString();
+    await pruneCompletedOutbox(
+      db,
+      input.scopeKey,
+      housekeepingBefore,
+    ).catch(() => 0);
+    await cleanupOrphanedMaintenanceFiles(
+      db,
+      input.scopeKey,
+    ).catch(() => 0);
 
     const counts = await currentCounts(db, input.scopeKey);
     emit(input.onProgress, 'complete', 'Sincronización completada');
@@ -217,12 +243,17 @@ export async function runSyncCycle(
       return { status: 'CONFLICT', ...counts };
     }
     if (pushResult.blocked > 0) {
-      return {
+      const blockedResult: SyncCycleResult = {
         status: 'ERROR',
         ...counts,
         errorCode: 'OUTBOX_BLOCKED',
         errorMessage: `${pushResult.blocked} operación${pushResult.blocked === 1 ? '' : 'es'} requiere${pushResult.blocked === 1 ? '' : 'n'} corrección antes de sincronizar.`,
       };
+      await markSyncError(db, input.scopeKey, 'maintenance', {
+        code: blockedResult.errorCode,
+        message: blockedResult.errorMessage,
+      }).catch(() => undefined);
+      return blockedResult;
     }
     return {
       status: counts.pendingCount > 0 ? 'PENDING' : 'UPDATED',
@@ -230,7 +261,18 @@ export async function runSyncCycle(
     };
   } catch (error) {
     const counts = await currentCounts(db, input.scopeKey);
-    return errorResult(error, counts.pendingCount, counts.conflictCount);
+    const result = errorResult(
+      error,
+      counts.pendingCount,
+      counts.conflictCount,
+    );
+    if (result.status === 'ERROR') {
+      await markSyncError(db, input.scopeKey, 'maintenance', {
+        code: result.errorCode,
+        message: result.errorMessage,
+      }).catch(() => undefined);
+    }
+    return result;
   } finally {
     await releaseSyncLease(db, lease.ownerId).catch(() => undefined);
   }
@@ -269,12 +311,14 @@ export async function runMaintenanceDetailRefresh(
 
   try {
     emit(input.onProgress, 'detail', 'Actualizando detalle del mantenimiento');
+    await renewSyncLease(db, lease.ownerId);
     const data = await actionRequest<Record<string, unknown>>(
       'maintenance.get',
       { maintenanceId },
       input.sessionToken,
       { signal: input.signal },
     );
+    await renewSyncLease(db, lease.ownerId);
     await persistAuthorizedMaintenanceDetail(
       db,
       input.scopeKey,
