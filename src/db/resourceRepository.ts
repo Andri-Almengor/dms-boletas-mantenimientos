@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { stringifyJson } from '@/db/json';
+import { parseJsonObject, stringifyJson } from '@/db/json';
 
 const RESOURCE_ID_KEYS: Record<string, string[]> = {
   client: ['ClienteID', 'clienteId', 'clientId', 'id'],
@@ -158,4 +158,157 @@ export async function listResourceItems(
     try { return JSON.parse(row.payload_json) as Record<string, unknown>; }
     catch { return {}; }
   });
+}
+
+
+export async function remapCreatedEquipmentLocationTx(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  localId: string,
+  serverRecord: Record<string, unknown>,
+) {
+  const serverId = resourceEntityId('equipmentLocation', serverRecord);
+  if (!serverId) {
+    throw new Error('El servidor no devolvió UbicacionEquipoID para la ubicación creada.');
+  }
+
+  const serverName = first(
+    serverRecord,
+    ['Nombre', 'UbicacionEquipo', 'zona'],
+  );
+
+  if (serverId === localId) {
+    await upsertResourceItemTx(
+      db,
+      scopeKey,
+      'equipmentLocation',
+      serverRecord,
+    );
+    return serverId;
+  }
+
+  await removeResourceItemTx(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    localId,
+  );
+  await upsertResourceItemTx(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    serverRecord,
+  );
+
+  const devices = await db.getAllAsync<{
+    device_id: string;
+    payload_json: string;
+  }>(
+    `SELECT device_id, payload_json
+     FROM local_maintenance_devices
+     WHERE scope_key = ? AND equipment_location_id = ? AND tombstone = 0`,
+    scopeKey,
+    localId,
+  );
+
+  for (const device of devices) {
+    const payload = parseJsonObject<Record<string, unknown>>(
+      device.payload_json,
+    );
+    const next = {
+      ...payload,
+      UbicacionEquipoID: serverId,
+      ubicacionEquipoId: serverId,
+      UbicacionEquipoNombre: serverName
+        || payload.UbicacionEquipoNombre
+        || payload.ubicacionEquipoNombre
+        || payload.Zona
+        || '',
+      ubicacionEquipoNombre: serverName
+        || payload.ubicacionEquipoNombre
+        || payload.UbicacionEquipoNombre
+        || payload.Zona
+        || '',
+      Zona: serverName
+        || payload.Zona
+        || payload.UbicacionEquipoNombre
+        || '',
+      zona: serverName
+        || payload.zona
+        || payload.UbicacionEquipoNombre
+        || '',
+    };
+
+    await db.runAsync(
+      `UPDATE local_maintenance_devices
+       SET equipment_location_id = ?,
+           equipment_location_name = CASE
+             WHEN ? <> '' THEN ?
+             ELSE equipment_location_name
+           END,
+           zone = CASE WHEN ? <> '' THEN ? ELSE zone END,
+           payload_json = ?,
+           local_updated_at = ?
+       WHERE scope_key = ? AND device_id = ?`,
+      serverId,
+      serverName,
+      serverName,
+      serverName,
+      serverName,
+      stringifyJson(next),
+      new Date().toISOString(),
+      scopeKey,
+      device.device_id,
+    );
+
+    const operations = await db.getAllAsync<{
+      operation_id: string;
+      payload_json: string;
+    }>(
+      `SELECT operation_id, payload_json
+       FROM sync_outbox
+       WHERE scope_key = ?
+         AND entity_type = 'maintenanceDevice'
+         AND entity_id = ?
+         AND status IN ('PENDING','FAILED','BLOCKED','CONFLICT')`,
+      scopeKey,
+      device.device_id,
+    );
+
+    for (const operation of operations) {
+      const operationPayload = parseJsonObject<Record<string, unknown>>(
+        operation.payload_json,
+      );
+      await db.runAsync(
+        `UPDATE sync_outbox
+         SET payload_json = ?, updated_at = ?
+         WHERE operation_id = ?`,
+        stringifyJson({
+          ...operationPayload,
+          UbicacionEquipoID: serverId,
+          ubicacionEquipoId: serverId,
+          UbicacionEquipoNombre: serverName
+            || operationPayload.UbicacionEquipoNombre
+            || operationPayload.ubicacionEquipoNombre
+            || '',
+          ubicacionEquipoNombre: serverName
+            || operationPayload.ubicacionEquipoNombre
+            || operationPayload.UbicacionEquipoNombre
+            || '',
+          Zona: serverName
+            || operationPayload.Zona
+            || operationPayload.UbicacionEquipoNombre
+            || '',
+          zona: serverName
+            || operationPayload.zona
+            || operationPayload.UbicacionEquipoNombre
+            || '',
+        }),
+        new Date().toISOString(),
+        operation.operation_id,
+      );
+    }
+  }
+
+  return serverId;
 }
