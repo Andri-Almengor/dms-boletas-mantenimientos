@@ -12,7 +12,6 @@ import {
   listLocalMaintenanceClients,
   listLocalMaintenancesPage,
 } from '@/db/maintenanceRepository';
-import { canCreateMaintenance } from '@/features/maintenance/maintenancePermissions';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import { Redirect, useRouter } from 'expo-router';
@@ -182,17 +181,6 @@ export default function MaintenanceListScreen() {
                 </Text>
               </View>
               <View style={styles.headingActions}>
-                {canCreateMaintenance(permissions) ? (
-                  <Pressable
-                    onPress={() => router.push('/maintenance/new')}
-                    style={({ pressed }) => [
-                      styles.createButton,
-                      pressed && styles.logoutPressed,
-                    ]}
-                  >
-                    <Text style={styles.createButtonText}>+ Nuevo</Text>
-                  </Pressable>
-                ) : null}
                 <Pressable
                   onPress={logout}
                   style={({ pressed }) => [
