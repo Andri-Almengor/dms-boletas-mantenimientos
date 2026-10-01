@@ -16,8 +16,39 @@ export async function createSyncConflict(
     reason?: string;
   },
 ) {
-  const conflictId = createLocalId('conflict');
   const now = new Date().toISOString();
+  const existing = await db.getFirstAsync<{ conflict_id: string }>(
+    `SELECT conflict_id
+     FROM sync_conflicts
+     WHERE scope_key = ? AND entity_type = ? AND entity_id = ?
+       AND status = 'OPEN'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    input.scopeKey,
+    input.entityType,
+    input.entityId,
+  );
+
+  if (existing?.conflict_id) {
+    await db.runAsync(
+      `UPDATE sync_conflicts
+       SET resource = ?, aggregate_id = ?, local_payload_json = ?,
+           remote_payload_json = ?, base_payload_json = ?, reason = ?,
+           updated_at = ?
+       WHERE conflict_id = ?`,
+      input.resource,
+      String(input.aggregateId || ''),
+      stringifyJson(input.localPayload),
+      stringifyJson(input.remotePayload),
+      stringifyJson(input.basePayload),
+      String(input.reason || ''),
+      now,
+      existing.conflict_id,
+    );
+    return existing.conflict_id;
+  }
+
+  const conflictId = createLocalId('conflict');
   await db.runAsync(
     `INSERT INTO sync_conflicts (
        conflict_id, scope_key, resource, entity_type, entity_id, aggregate_id,
