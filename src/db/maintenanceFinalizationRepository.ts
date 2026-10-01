@@ -30,7 +30,8 @@ export async function queueLocalMaintenanceFinalization(
   const maintenanceId = String(input.maintenanceId || '').trim();
   if (!maintenanceId) throw new Error('No se indicó el mantenimiento que se debe finalizar.');
 
-  let result: { operationId: string; alreadyFinalized: boolean } | null = null;
+  let operationId = '';
+  let alreadyFinalized = false;
 
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const row = await transaction.getFirstAsync<{
@@ -48,7 +49,7 @@ export async function queueLocalMaintenanceFinalization(
 
     const status = normalizeStatus(row.status);
     if (status === 'FINALIZADO') {
-      result = { operationId: '', alreadyFinalized: true };
+      alreadyFinalized = true;
       return;
     }
     if (status !== 'PENDIENTE') {
@@ -79,7 +80,7 @@ export async function queueLocalMaintenanceFinalization(
       maintenanceId,
     );
     if (inFlight) {
-      result = { operationId: inFlight.operation_id, alreadyFinalized: false };
+      operationId = inFlight.operation_id;
       return;
     }
 
@@ -134,14 +135,13 @@ export async function queueLocalMaintenanceFinalization(
       dedupeKey: maintenanceFinalizationDedupeKey(maintenanceId),
     });
 
-    result = {
-      operationId: queued.operationId,
-      alreadyFinalized: false,
-    };
+    operationId = queued.operationId;
   });
 
-  if (!result) throw new Error('No se pudo registrar la finalización local.');
-  return result;
+  return {
+    operationId,
+    alreadyFinalized,
+  };
 }
 
 export async function applyMaintenanceFinalizationAcceptedTx(
