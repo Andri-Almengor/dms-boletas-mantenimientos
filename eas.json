@@ -1,6 +1,7 @@
 {
   "cli": {
-    "appVersionSource": "local"
+    "appVersionSource": "local",
+    "version": ">=21.0.0"
   },
   "build": {
     "preview": {
