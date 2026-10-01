@@ -1,4 +1,4 @@
-export const LOCAL_SCHEMA_VERSION = 5;
+export const LOCAL_SCHEMA_VERSION = 6;
 
 export type LocalMigration = {
   version: number;
@@ -287,10 +287,19 @@ CREATE INDEX IF NOT EXISTS ix_local_maintenance_signatures_scope_sync
   ON local_maintenance_signatures (scope_key, sync_status, updated_at DESC);
 `;
 
+const MIGRATION_6 = String.raw`
+CREATE INDEX IF NOT EXISTS ix_sync_outbox_scope_aggregate
+  ON sync_outbox (scope_key, aggregate_id, status, row_id);
+
+CREATE INDEX IF NOT EXISTS ix_local_files_scope_updated
+  ON local_files (scope_key, updated_at);
+`;
+
 export const LOCAL_MIGRATIONS: LocalMigration[] = [
   { version: 1, sql: MIGRATION_1 },
   { version: 2, sql: MIGRATION_2 },
   { version: 3, sql: MIGRATION_3 },
   { version: 4, sql: MIGRATION_4 },
   { version: 5, sql: MIGRATION_5 },
+  { version: 6, sql: MIGRATION_6 },
 ];
