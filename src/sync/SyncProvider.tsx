@@ -6,6 +6,10 @@ import {
   countUnresolvedOutbox,
 } from '@/db/outboxRepository';
 import {
+  ensureBackgroundSyncRegistration,
+  unregisterBackgroundSync,
+} from '@/sync/backgroundSyncTask';
+import {
   runMaintenanceDetailRefresh,
   runSyncCycle,
   SyncCycleStatus,
@@ -14,7 +18,11 @@ import {
 import {
   getAutomaticSyncWindowLabel,
   isAutomaticSyncWindow,
+  isSyncAllowed,
+  millisecondsUntilAutomaticWindowBoundary,
+  SyncTrigger,
 } from '@/sync/syncPolicy';
+import { subscribeLocalSyncNeeded } from '@/sync/syncEvents';
 import * as Network from 'expo-network';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, {
@@ -24,8 +32,13 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import {
+  AppState,
+  AppStateStatus,
+} from 'react-native';
 
 type SyncViewState = {
   status: SyncCycleStatus;
@@ -54,6 +67,8 @@ const INITIAL_STATE: SyncViewState = {
   syncing: false,
   lastSuccessAt: 0,
 };
+
+const LOCAL_CHANGE_DEBOUNCE_MS = 1_250;
 
 function messageFor(
   status: SyncCycleStatus,
@@ -92,16 +107,25 @@ async function networkAvailable() {
   return network.isConnected !== false && network.isInternetReachable !== false;
 }
 
+function stateIsOnline(state: Network.NetworkState) {
+  return state.isConnected !== false
+    && state.isInternetReachable !== false;
+}
+
 export function SyncProvider({ children }: PropsWithChildren) {
   const db = useSQLiteContext();
   const {
     user,
     permissions,
     sessionToken,
+    loading: authLoading,
     refreshMe,
     clearSession,
   } = useAuth();
   const [state, setState] = useState<SyncViewState>(INITIAL_STATE);
+  const syncingRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const localChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshStatus = useCallback(async () => {
     if (!user || !sessionToken) {
@@ -125,7 +149,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
     let status: SyncCycleStatus = 'UPDATED';
     if (conflictCount > 0) status = 'CONFLICT';
-    else if (network.isConnected === false || network.isInternetReachable === false) status = 'OFFLINE';
+    else if (!stateIsOnline(network)) status = 'OFFLINE';
     else if (!isAutomaticSyncWindow()) status = 'PAUSED';
     else if (pendingCount > 0) status = 'PENDING';
 
@@ -164,17 +188,103 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
   const handleAuthenticationFailure = useCallback(async () => {
     await clearSession();
+    syncingRef.current = false;
     setState((current) => ({
       ...current,
       syncing: false,
       phase: 'idle',
       status: 'SESSION_EXPIRED',
-      message: messageFor('SESSION_EXPIRED', current.pendingCount, current.conflictCount),
+      message: messageFor(
+        'SESSION_EXPIRED',
+        current.pendingCount,
+        current.conflictCount,
+      ),
     }));
   }, [clearSession]);
 
+  const runAutomaticSync = useCallback(async (
+    trigger: Exclude<SyncTrigger, 'manual'>,
+  ) => {
+    if (!sessionToken || !user || authLoading) return;
+
+    // La ventana se verifica antes de consultar conectividad o ejecutar APIs.
+    if (!isSyncAllowed(trigger)) {
+      await refreshStatus();
+      return;
+    }
+    if (syncingRef.current) return;
+
+    if (!(await networkAvailable())) {
+      await refreshStatus();
+      return;
+    }
+
+    const scopeKey = buildLocalDataScope(user, permissions);
+    if (!scopeKey) return;
+
+    syncingRef.current = true;
+    setState((current) => ({
+      ...current,
+      syncing: true,
+      status: 'BUSY',
+      phase: 'checking',
+      message: 'Sincronizando automáticamente',
+    }));
+
+    try {
+      const result = await runSyncCycle(db, {
+        trigger,
+        scopeKey,
+        sessionToken,
+        onProgress: (progress) => {
+          setState((current) => ({
+            ...current,
+            syncing: true,
+            phase: progress.phase,
+            message: progress.message,
+          }));
+        },
+      });
+
+      if (result.status === 'SESSION_EXPIRED') {
+        await handleAuthenticationFailure();
+        return;
+      }
+      if (result.status === 'BUSY') {
+        await refreshStatus();
+        return;
+      }
+      applyResult(result);
+    } catch (error) {
+      if (isAuthenticationError(error)) {
+        await handleAuthenticationFailure();
+        return;
+      }
+      setState((current) => ({
+        ...current,
+        syncing: false,
+        phase: 'idle',
+        status: 'ERROR',
+        message: error instanceof Error
+          ? error.message
+          : messageFor('ERROR', current.pendingCount, current.conflictCount),
+      }));
+    } finally {
+      syncingRef.current = false;
+    }
+  }, [
+    applyResult,
+    authLoading,
+    db,
+    handleAuthenticationFailure,
+    permissions,
+    refreshStatus,
+    sessionToken,
+    user,
+  ]);
+
   const syncNow = useCallback(async () => {
-    if (state.syncing) return;
+    if (syncingRef.current) return;
     if (!sessionToken || !user) {
       await handleAuthenticationFailure();
       return;
@@ -184,6 +294,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    syncingRef.current = true;
     setState((current) => ({
       ...current,
       syncing: true,
@@ -208,6 +319,10 @@ export function SyncProvider({ children }: PropsWithChildren) {
           }));
         },
       });
+      if (result.status === 'SESSION_EXPIRED') {
+        await handleAuthenticationFailure();
+        return;
+      }
       applyResult(result);
     } catch (error) {
       if (isAuthenticationError(error)) {
@@ -223,10 +338,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
           ? error.message
           : messageFor('ERROR', current.pendingCount, current.conflictCount),
       }));
+    } finally {
+      syncingRef.current = false;
     }
   }, [
     db,
-    state.syncing,
     sessionToken,
     user,
     refreshMe,
@@ -236,12 +352,13 @@ export function SyncProvider({ children }: PropsWithChildren) {
   ]);
 
   const refreshMaintenanceDetail = useCallback(async (maintenanceId: string) => {
-    if (state.syncing || !sessionToken || !user) return false;
+    if (syncingRef.current || !sessionToken || !user) return false;
     if (!(await networkAvailable())) {
       await refreshStatus();
       return false;
     }
 
+    syncingRef.current = true;
     setState((current) => ({
       ...current,
       syncing: true,
@@ -266,6 +383,10 @@ export function SyncProvider({ children }: PropsWithChildren) {
           }));
         },
       });
+      if (result.status === 'SESSION_EXPIRED') {
+        await handleAuthenticationFailure();
+        return false;
+      }
       applyResult(result);
       return result.status === 'UPDATED'
         || result.status === 'PENDING'
@@ -285,10 +406,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
           : messageFor('ERROR', current.pendingCount, current.conflictCount),
       }));
       return false;
+    } finally {
+      syncingRef.current = false;
     }
   }, [
     db,
-    state.syncing,
     sessionToken,
     user,
     refreshMe,
@@ -296,6 +418,128 @@ export function SyncProvider({ children }: PropsWithChildren) {
     handleAuthenticationFailure,
     refreshStatus,
   ]);
+
+  // Apertura / primera sesión restaurada.
+  useEffect(() => {
+    if (authLoading || !sessionToken || !user) return;
+    runAutomaticSync('foreground').catch(() => undefined);
+  }, [authLoading, runAutomaticSync, sessionToken, user]);
+
+  // Regreso al foreground.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previous = appStateRef.current;
+      appStateRef.current = nextState;
+      if (nextState === 'active' && previous !== 'active') {
+        runAutomaticSync('foreground').catch(() => undefined);
+      }
+    });
+    return () => subscription.remove();
+  }, [runAutomaticSync]);
+
+  // Recuperación real de red; el primer estado observado no dispara sync.
+  useEffect(() => {
+    if (authLoading || !sessionToken || !user) return;
+    let active = true;
+    let previousOnline: boolean | null = null;
+
+    Network.getNetworkStateAsync()
+      .then((network) => {
+        if (active) previousOnline = stateIsOnline(network);
+      })
+      .catch(() => undefined);
+
+    const subscription = Network.addNetworkStateListener((network) => {
+      const online = stateIsOnline(network);
+      const recovered = previousOnline === false && online;
+      previousOnline = online;
+      if (recovered && AppState.currentState === 'active') {
+        runAutomaticSync('network').catch(() => undefined);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [authLoading, runAutomaticSync, sessionToken, user]);
+
+  // Cambios locales: debounce para agrupar una edición y sus operaciones.
+  useEffect(() => {
+    const unsubscribe = subscribeLocalSyncNeeded(() => {
+      if (localChangeTimerRef.current) {
+        clearTimeout(localChangeTimerRef.current);
+      }
+
+      if (!isSyncAllowed('local-change')) {
+        refreshStatus().catch(() => undefined);
+        return;
+      }
+
+      localChangeTimerRef.current = setTimeout(() => {
+        localChangeTimerRef.current = null;
+        if (AppState.currentState === 'active') {
+          runAutomaticSync('local-change').catch(() => undefined);
+        }
+      }, LOCAL_CHANGE_DEBOUNCE_MS);
+    });
+
+    return () => {
+      unsubscribe();
+      if (localChangeTimerRef.current) {
+        clearTimeout(localChangeTimerRef.current);
+        localChangeTimerRef.current = null;
+      }
+    };
+  }, [refreshStatus, runAutomaticSync]);
+
+  // Un único timer hacia 07:00 o 17:00; no existe polling.
+  useEffect(() => {
+    if (authLoading || !sessionToken || !user) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleBoundary = () => {
+      if (cancelled) return;
+      const delay = Math.max(
+        1_000,
+        millisecondsUntilAutomaticWindowBoundary() + 500,
+      );
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        refreshStatus().catch(() => undefined);
+        if (
+          AppState.currentState === 'active'
+          && isAutomaticSyncWindow()
+        ) {
+          runAutomaticSync('foreground').catch(() => undefined);
+        }
+        scheduleBoundary();
+      }, delay);
+    };
+
+    scheduleBoundary();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    authLoading,
+    refreshStatus,
+    runAutomaticSync,
+    sessionToken,
+    user,
+  ]);
+
+  // BackgroundTask es apoyo del mismo coordinador, nunca un servicio vivo.
+  useEffect(() => {
+    if (authLoading) return;
+    if (sessionToken && user) {
+      ensureBackgroundSyncRegistration().catch(() => undefined);
+    } else {
+      unregisterBackgroundSync().catch(() => undefined);
+    }
+  }, [authLoading, sessionToken, user]);
 
   const value = useMemo<SyncContextValue>(() => ({
     ...state,
