@@ -23,6 +23,7 @@ import {
 } from '@/sync/syncPull';
 import { pushOutbox } from '@/sync/syncPush';
 import {
+  AUTO_SYNC_WINDOW_CLOSED_CODE,
   isSyncAllowed,
   SyncTrigger,
 } from '@/sync/syncPolicy';
@@ -98,6 +99,16 @@ function errorResult(
     ? error.code
     : String((error as Error & { code?: string })?.code || 'SYNC_ERROR');
 
+  if (code === AUTO_SYNC_WINDOW_CLOSED_CODE) {
+    return {
+      status: 'PAUSED',
+      pendingCount,
+      conflictCount,
+      errorCode: code,
+      errorMessage: error instanceof Error ? error.message : undefined,
+    };
+  }
+
   return {
     status: 'ERROR',
     pendingCount,
@@ -148,6 +159,9 @@ export async function runSyncCycle(
     return { status: 'BUSY', ...initial };
   }
 
+  const shouldContinue = () => input.trigger === 'manual'
+    || isSyncAllowed(input.trigger);
+
   try {
     await recoverInterruptedOutbox(db, input.scopeKey);
 
@@ -158,6 +172,7 @@ export async function runSyncCycle(
         config,
         sessionToken: input.sessionToken,
         signal: input.signal,
+        shouldContinue,
       });
     }
     await renewSyncLease(db, lease.ownerId);
@@ -167,6 +182,7 @@ export async function runSyncCycle(
       scopeKey: input.scopeKey,
       sessionToken: input.sessionToken,
       signal: input.signal,
+      shouldContinue,
     });
     await renewSyncLease(db, lease.ownerId);
 
@@ -178,6 +194,7 @@ export async function runSyncCycle(
       onProgress: ({ processed }) => {
         emit(input.onProgress, 'push', `3. Subiendo cambios · ${processed} procesados`, processed);
       },
+      shouldContinue,
     });
     await renewSyncLease(db, lease.ownerId);
 
@@ -189,6 +206,7 @@ export async function runSyncCycle(
         config: maintenanceConfig,
         sessionToken: input.sessionToken,
         signal: input.signal,
+        shouldContinue,
       });
     }
 
