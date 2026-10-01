@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { stringifyJson } from '@/db/json';
+import { emitLocalSyncNeeded } from '@/sync/syncEvents';
 import { createLocalId } from '@/utils/localId';
 
 export type OutboxStatus =
@@ -113,6 +114,7 @@ export async function enqueueOutboxOperationTx(
       now,
       pending.operation_id,
     );
+    emitLocalSyncNeeded();
     return { operationId: pending.operation_id, mutationId: pending.mutation_id, coalesced: true };
   }
 
@@ -143,6 +145,7 @@ export async function enqueueOutboxOperationTx(
     now,
   );
 
+  emitLocalSyncNeeded();
   return { operationId, mutationId, coalesced: false };
 }
 
