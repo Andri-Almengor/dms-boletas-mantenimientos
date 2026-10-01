@@ -117,7 +117,7 @@ export function SyncStatusCard() {
         >
           <Text style={styles.buttonGlyph}>{syncing ? '↻' : '↕'}</Text>
           <Text style={styles.buttonText}>
-            {syncing ? 'En curso' : 'Sincronizar'}
+            {syncing ? 'En curso' : 'Sincronizar ahora'}
           </Text>
         </Pressable>
       </View>
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   },
   button: {
     minHeight: sizing.touchTargetMin,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 10,
     borderRadius: radius.sm,
     backgroundColor: colors.surfaceContainer,
     borderWidth: 1,
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: colors.text,
     fontWeight: '900',
-    fontSize: 10,
+    fontSize: 9,
   },
   scheduleRow: {
     minHeight: 32,
