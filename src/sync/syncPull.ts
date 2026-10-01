@@ -1,4 +1,6 @@
 import { actionRequest, ActionApiError } from '@/api/actionClient';
+import { createSyncConflict } from '@/db/conflictRepository';
+import { parseJsonObject } from '@/db/json';
 import { automaticSyncWindowClosedError } from '@/sync/syncPolicy';
 import {
   hasUnresolvedEntityOperations,
@@ -97,6 +99,49 @@ function maintenanceId(record: RecordLike) {
   return String(record.MantenimientoID || record.maintenanceId || record.id || '').trim();
 }
 
+async function registerRemoteDeletedMaintenanceConflict(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  pending: Awaited<ReturnType<typeof listUnresolvedEntityOperations>>,
+) {
+  const latest = pending[pending.length - 1];
+  const localPayload = latest
+    ? parseJsonObject<RecordLike>(latest.payload_json)
+    : {};
+  const basePayload = (
+    localPayload.__syncBase
+    && typeof localPayload.__syncBase === 'object'
+      ? localPayload.__syncBase as RecordLike
+      : {}
+  );
+
+  await createSyncConflict(db, {
+    scopeKey,
+    resource: 'maintenance',
+    entityType: 'maintenance',
+    entityId: maintenanceId,
+    aggregateId: maintenanceId,
+    localPayload,
+    remotePayload: { deleted: true, maintenanceId },
+    basePayload,
+    reason: JSON.stringify(['REMOTE_DELETED']),
+  });
+
+  await db.runAsync(
+    `UPDATE sync_outbox
+     SET status = 'CONFLICT', last_error_code = 'REMOTE_DELETED',
+         last_error_message = 'El mantenimiento fue eliminado remotamente.',
+         updated_at = ?
+     WHERE scope_key = ? AND entity_type = 'maintenance'
+       AND entity_id = ?
+       AND status IN ('PENDING','FAILED','BLOCKED')`,
+    new Date().toISOString(),
+    scopeKey,
+    maintenanceId,
+  );
+}
+
 async function applyMaintenanceSnapshot(
   db: SQLiteDatabase,
   scopeKey: string,
@@ -136,17 +181,11 @@ async function applyMaintenanceSnapshot(
       if (!pending.length && row.sync_status === 'SYNCED') {
         await tombstoneRemoteMaintenance(transaction, scopeKey, row.maintenance_id);
       } else if (pending.length && !pendingCreate) {
-        await transaction.runAsync(
-          `UPDATE sync_outbox
-           SET status = 'CONFLICT', last_error_code = 'REMOTE_DELETED',
-               last_error_message = 'El mantenimiento ya no existe en el servidor.',
-               updated_at = ?
-           WHERE scope_key = ? AND entity_type = 'maintenance'
-             AND entity_id = ?
-             AND status IN ('PENDING','FAILED','BLOCKED')`,
-          new Date().toISOString(),
+        await registerRemoteDeletedMaintenanceConflict(
+          transaction,
           scopeKey,
           row.maintenance_id,
+          pending,
         );
       }
     }
@@ -182,17 +221,11 @@ async function applyMaintenanceDelta(
       if (!pending.length) {
         await tombstoneRemoteMaintenance(transaction, scopeKey, String(id));
       } else if (!pendingCreate) {
-        await transaction.runAsync(
-          `UPDATE sync_outbox
-           SET status = 'CONFLICT', last_error_code = 'REMOTE_DELETED',
-               last_error_message = 'El mantenimiento fue eliminado remotamente.',
-               updated_at = ?
-           WHERE scope_key = ? AND entity_type = 'maintenance'
-             AND entity_id = ?
-             AND status IN ('PENDING','FAILED','BLOCKED')`,
-          new Date().toISOString(),
+        await registerRemoteDeletedMaintenanceConflict(
+          transaction,
           scopeKey,
           String(id),
+          pending,
         );
       }
     }
