@@ -813,14 +813,19 @@ export function DeviceEditorScreen({
         >
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>
-              {projectMode ? 'Proyecto' : 'Mantenimiento'}
+              {mode === 'create'
+                ? 'Registro rápido'
+                : projectMode
+                  ? 'Proyecto'
+                  : 'Mantenimiento'}
             </Text>
             <Text style={styles.title}>
               {mode === 'create' ? 'Nuevo dispositivo' : form.name || 'Editar dispositivo'}
             </Text>
             <Text style={styles.subtitle}>
-              Complete ubicación, datos del dispositivo y evidencias en una sola pantalla.
-              Los cambios se guardan primero en este teléfono y se sincronizan después.
+              {mode === 'create'
+                ? 'Ubicación, datos, checklist y evidencias en un solo flujo. Se guarda primero en este teléfono.'
+                : 'Edite únicamente los datos necesarios. Los cambios se guardan primero en este teléfono.'}
             </Text>
             {!detailComplete ? (
               <Text style={styles.warningText}>
@@ -835,7 +840,7 @@ export function DeviceEditorScreen({
                 <Text style={styles.activeLocationGlyph}>⌖</Text>
               </View>
               <View style={styles.activeLocationCopy}>
-                <Text style={styles.activeLocationLabel}>Ubicación activa</Text>
+                <Text style={styles.activeLocationLabel}>Ubicación activa · fijada</Text>
                 <Text style={styles.activeLocationName} numberOfLines={1}>
                   {form.equipmentLocationName || 'Ubicación seleccionada'}
                 </Text>
