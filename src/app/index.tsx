@@ -1,8 +1,5 @@
 import { useAuth } from '@/auth/AuthProvider';
-import {
-  getAutomaticSyncWindowLabel,
-  isAutomaticSyncWindow,
-} from '@/sync/syncPolicy';
+import { SyncStatusCard } from '@/components/SyncStatusCard';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import { Redirect } from 'expo-router';
 import React from 'react';
@@ -29,8 +26,6 @@ export default function HomeScreen() {
   if (!user) return <Redirect href="/login" />;
   if (user.CambioPasswordObligatorio) return <Redirect href="/change-password" />;
 
-  const automaticWindow = isAutomaticSyncWindow();
-
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <View style={styles.container}>
@@ -38,28 +33,19 @@ export default function HomeScreen() {
           <Text style={styles.eyebrow}>DMS Mantenimientos</Text>
           <Text style={styles.title}>Trabajo local-first</Text>
           <Text style={styles.subtitle}>
-            La base móvil usa SQLite y conserva el contrato del backend de DMS Boletas.
+            Los cambios se guardan primero en SQLite. La sincronización no bloquea el trabajo local.
           </Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Base local</Text>
-          <Text style={styles.statusSuccess}>✓ SQLite preparado</Text>
-          <Text style={styles.muted}>
-            Las tablas operativas y la outbox se incorporan en la Etapa 2.
-          </Text>
-        </View>
+        <SyncStatusCard />
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Política de sincronización</Text>
-          <Text style={automaticWindow ? styles.statusSuccess : styles.statusPaused}>
-            {automaticWindow ? '✓' : '🌙'} {getAutomaticSyncWindowLabel()}
+          <Text style={styles.cardTitle}>Etapa 3 activa</Text>
+          <Text style={styles.statusSuccess}>
+            ✓ PULL → reconciliación → PUSH → PULL final
           </Text>
           <Text style={styles.muted}>
-            Automática: 07:00–17:00 · Manual: 24 horas.
-          </Text>
-          <Text style={styles.muted}>
-            El motor PULL → reconciliación → PUSH → PULL final se activa en una etapa posterior.
+            El botón manual funciona a cualquier hora. Los triggers automáticos y BackgroundTask todavía no están registrados.
           </Text>
         </View>
 
@@ -101,7 +87,6 @@ const styles = StyleSheet.create({
   },
   cardTitle: { color: colors.text, fontWeight: '800', fontSize: 17 },
   statusSuccess: { color: colors.success, fontWeight: '700' },
-  statusPaused: { color: colors.variant, fontWeight: '700' },
   muted: { color: colors.muted, lineHeight: 20 },
   secondaryButton: {
     minHeight: sizing.buttonHeight,

@@ -1,0 +1,227 @@
+import {
+  ActionApiError,
+  isAuthenticationError,
+} from '@/api/actionClient';
+import {
+  countOpenConflicts,
+  countUnresolvedOutbox,
+  recoverInterruptedOutbox,
+} from '@/db/outboxRepository';
+import {
+  acquireSyncLease,
+  releaseSyncLease,
+  renewSyncLease,
+} from '@/db/syncLockRepository';
+import { DELTA_RESOURCES } from '@/sync/resourceRegistry';
+import {
+  refreshStaticResources,
+  synchronizeDeltaResource,
+} from '@/sync/syncPull';
+import { pushOutbox } from '@/sync/syncPush';
+import {
+  isSyncAllowed,
+  SyncTrigger,
+} from '@/sync/syncPolicy';
+import * as Network from 'expo-network';
+import type { SQLiteDatabase } from 'expo-sqlite';
+
+export type SyncPhase =
+  | 'idle'
+  | 'checking'
+  | 'pull'
+  | 'reconcile'
+  | 'push'
+  | 'final-pull'
+  | 'complete';
+
+export type SyncCycleStatus =
+  | 'UPDATED'
+  | 'PENDING'
+  | 'OFFLINE'
+  | 'PAUSED'
+  | 'ERROR'
+  | 'CONFLICT'
+  | 'SESSION_EXPIRED'
+  | 'BUSY';
+
+export type SyncProgress = {
+  phase: SyncPhase;
+  message: string;
+  processed?: number;
+};
+
+export type SyncCycleResult = {
+  status: SyncCycleStatus;
+  pendingCount: number;
+  conflictCount: number;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+function emit(
+  callback: ((progress: SyncProgress) => void) | undefined,
+  phase: SyncPhase,
+  message: string,
+  processed?: number,
+) {
+  callback?.({ phase, message, processed });
+}
+
+async function hasInternet() {
+  const state = await Network.getNetworkStateAsync();
+  if (state.isConnected === false) return false;
+  if (state.isInternetReachable === false) return false;
+  return true;
+}
+
+function errorResult(
+  error: unknown,
+  pendingCount: number,
+  conflictCount: number,
+): SyncCycleResult {
+  if (isAuthenticationError(error)) {
+    return {
+      status: 'SESSION_EXPIRED',
+      pendingCount,
+      conflictCount,
+      errorCode: 'SESSION_EXPIRED',
+      errorMessage: error instanceof Error ? error.message : 'La sesión expiró.',
+    };
+  }
+
+  const code = error instanceof ActionApiError
+    ? error.code
+    : String((error as Error & { code?: string })?.code || 'SYNC_ERROR');
+
+  return {
+    status: 'ERROR',
+    pendingCount,
+    conflictCount,
+    errorCode: code,
+    errorMessage: error instanceof Error
+      ? error.message
+      : 'No se pudo completar la sincronización.',
+  };
+}
+
+export async function runSyncCycle(
+  db: SQLiteDatabase,
+  input: {
+    trigger: SyncTrigger;
+    scopeKey: string;
+    sessionToken: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: SyncProgress) => void;
+  },
+): Promise<SyncCycleResult> {
+  const initialPending = await countUnresolvedOutbox(db, input.scopeKey);
+  const initialConflicts = await countOpenConflicts(db, input.scopeKey);
+
+  if (input.trigger !== 'manual' && !isSyncAllowed(input.trigger)) {
+    return {
+      status: 'PAUSED',
+      pendingCount: initialPending,
+      conflictCount: initialConflicts,
+    };
+  }
+
+  emit(input.onProgress, 'checking', 'Comprobando conexión y sesión');
+
+  if (!(await hasInternet())) {
+    return {
+      status: 'OFFLINE',
+      pendingCount: initialPending,
+      conflictCount: initialConflicts,
+    };
+  }
+
+  if (!input.sessionToken || !input.scopeKey) {
+    return {
+      status: 'SESSION_EXPIRED',
+      pendingCount: initialPending,
+      conflictCount: initialConflicts,
+    };
+  }
+
+  const lease = await acquireSyncLease(db);
+  if (!lease) {
+    return {
+      status: 'BUSY',
+      pendingCount: initialPending,
+      conflictCount: initialConflicts,
+    };
+  }
+
+  try {
+    await recoverInterruptedOutbox(db, input.scopeKey);
+
+    emit(input.onProgress, 'pull', '1. Actualizando información');
+    for (const config of DELTA_RESOURCES) {
+      await synchronizeDeltaResource(db, {
+        scopeKey: input.scopeKey,
+        config,
+        sessionToken: input.sessionToken,
+        signal: input.signal,
+      });
+    }
+    await renewSyncLease(db, lease.ownerId);
+
+    emit(input.onProgress, 'reconcile', '2. Validando catálogos');
+    await refreshStaticResources(db, {
+      scopeKey: input.scopeKey,
+      sessionToken: input.sessionToken,
+      signal: input.signal,
+    });
+    await renewSyncLease(db, lease.ownerId);
+
+    emit(input.onProgress, 'push', '3. Subiendo cambios pendientes');
+    const pushResult = await pushOutbox(db, {
+      scopeKey: input.scopeKey,
+      sessionToken: input.sessionToken,
+      signal: input.signal,
+      onProgress: ({ processed }) => {
+        emit(input.onProgress, 'push', `3. Subiendo cambios · ${processed} procesados`, processed);
+      },
+    });
+    await renewSyncLease(db, lease.ownerId);
+
+    emit(input.onProgress, 'final-pull', '4. Comprobando cambios');
+    const maintenanceConfig = DELTA_RESOURCES.find((item) => item.resource === 'maintenance');
+    if (maintenanceConfig) {
+      await synchronizeDeltaResource(db, {
+        scopeKey: input.scopeKey,
+        config: maintenanceConfig,
+        sessionToken: input.sessionToken,
+        signal: input.signal,
+      });
+    }
+
+    const pendingCount = await countUnresolvedOutbox(db, input.scopeKey);
+    const conflictCount = await countOpenConflicts(db, input.scopeKey);
+    emit(input.onProgress, 'complete', 'Sincronización completada');
+
+    if (conflictCount > 0) {
+      return { status: 'CONFLICT', pendingCount, conflictCount };
+    }
+    if (pushResult.blocked > 0) {
+      return {
+        status: 'ERROR',
+        pendingCount,
+        conflictCount,
+        errorCode: 'OUTBOX_BLOCKED',
+        errorMessage: `${pushResult.blocked} operación${pushResult.blocked === 1 ? '' : 'es'} requiere${pushResult.blocked === 1 ? '' : 'n'} corrección antes de sincronizar.`,
+      };
+    }
+    return {
+      status: pendingCount > 0 ? 'PENDING' : 'UPDATED',
+      pendingCount,
+      conflictCount,
+    };
+  } catch (error) {
+    const pendingCount = await countUnresolvedOutbox(db, input.scopeKey);
+    const conflictCount = await countOpenConflicts(db, input.scopeKey);
+    return errorResult(error, pendingCount, conflictCount);
+  } finally {
+    await releaseSyncLease(db, lease.ownerId).catch(() => undefined);
+  }
+}

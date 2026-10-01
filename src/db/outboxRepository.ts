@@ -164,7 +164,7 @@ export async function findPendingEntityCreateOperation(
   return db.getFirstAsync<OutboxRow>(
     `SELECT * FROM sync_outbox
      WHERE scope_key = ? AND entity_type = ? AND entity_id = ?
-       AND status = 'PENDING' AND operation_kind = 'CREATE'
+       AND status IN ('PENDING', 'IN_FLIGHT') AND operation_kind = 'CREATE'
      ORDER BY row_id DESC LIMIT 1`,
     scopeKey,
     entityType,
@@ -246,6 +246,23 @@ export async function markOutboxFailed(
   );
 }
 
+export async function markOutboxBlocked(
+  db: SQLiteDatabase,
+  operationId: string,
+  error: { code?: string; message?: string } = {},
+) {
+  await db.runAsync(
+    `UPDATE sync_outbox
+     SET status = 'BLOCKED', last_error_code = ?, last_error_message = ?,
+         updated_at = ?
+     WHERE operation_id = ?`,
+    String(error.code || 'BLOCKED'),
+    String(error.message || ''),
+    new Date().toISOString(),
+    operationId,
+  );
+}
+
 export async function markOutboxConflict(
   db: SQLiteDatabase,
   operationId: string,
@@ -286,4 +303,54 @@ export async function countUnresolvedOutbox(
     scopeKey,
   );
   return Number(row?.total || 0);
+}
+
+export async function countOpenConflicts(
+  db: SQLiteDatabase,
+  scopeKey: string,
+) {
+  const row = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM sync_conflicts
+     WHERE scope_key = ? AND status = 'OPEN'`,
+    scopeKey,
+  );
+  return Number(row?.total || 0);
+}
+
+export async function hasUnresolvedEntityOperations(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  entityType: string,
+  entityId: string,
+  excludeOperationId = '',
+) {
+  const row = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM sync_outbox
+     WHERE scope_key = ? AND entity_type = ? AND entity_id = ?
+       AND status IN ('PENDING', 'IN_FLIGHT', 'FAILED', 'CONFLICT', 'BLOCKED')
+       AND (? = '' OR operation_id <> ?)`,
+    scopeKey,
+    entityType,
+    entityId,
+    excludeOperationId,
+    excludeOperationId,
+  );
+  return Number(row?.total || 0) > 0;
+}
+
+export async function listUnresolvedEntityOperations(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  entityType: string,
+  entityId: string,
+) {
+  return db.getAllAsync<OutboxRow>(
+    `SELECT * FROM sync_outbox
+     WHERE scope_key = ? AND entity_type = ? AND entity_id = ?
+       AND status IN ('PENDING', 'IN_FLIGHT', 'FAILED', 'CONFLICT', 'BLOCKED')
+     ORDER BY row_id ASC`,
+    scopeKey,
+    entityType,
+    entityId,
+  );
 }

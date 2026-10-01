@@ -4,6 +4,10 @@ import {
   enqueueOutboxOperationTx,
   findPendingEntityCreateOperation,
 } from '@/db/outboxRepository';
+import {
+  maintenanceSyncBase,
+  withSyncBase,
+} from '@/sync/syncBase';
 import { createLocalId } from '@/utils/localId';
 
 export type MaintenanceRecord = Record<string, unknown>;
@@ -118,6 +122,21 @@ export async function upsertRemoteMaintenance(
   await upsertMaintenanceRow(db, scopeKey, record, 'SYNCED');
 }
 
+export async function tombstoneRemoteMaintenance(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  id: string,
+) {
+  await db.runAsync(
+    `UPDATE local_maintenances
+     SET tombstone = 1, sync_status = 'SYNCED', local_updated_at = ?
+     WHERE scope_key = ? AND maintenance_id = ?`,
+    new Date().toISOString(),
+    scopeKey,
+    id,
+  );
+}
+
 export async function saveLocalMaintenance(
   db: SQLiteDatabase,
   scopeKey: string,
@@ -138,12 +157,19 @@ export async function saveLocalMaintenance(
 
     if (!savedId) savedId = createLocalId('mantenimiento');
 
-    const merged = existing
+    const existingPayload = existing
+      ? parseJsonObject<MaintenanceRecord>(existing.payload_json)
+      : null;
+    let merged = existing
       ? mergeJsonPayload(existing.payload_json, patch)
       : { ...patch };
 
     merged.MantenimientoID = savedId;
     merged.maintenanceId = savedId;
+
+    if (existingPayload && !merged.__syncBase) {
+      merged = withSyncBase(merged, maintenanceSyncBase(existingPayload));
+    }
 
     const pendingCreate = await findPendingEntityCreateOperation(
       transaction,

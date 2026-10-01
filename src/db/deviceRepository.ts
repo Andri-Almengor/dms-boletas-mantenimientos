@@ -4,9 +4,13 @@ import {
   enqueueOutboxOperationTx,
   findPendingEntityCreateOperation,
 } from '@/db/outboxRepository';
+import {
+  maintenanceDeviceSyncBase,
+  withSyncBase,
+} from '@/sync/syncBase';
 import { createLocalId } from '@/utils/localId';
 
-type DeviceRecord = Record<string, unknown>;
+export type DeviceRecord = Record<string, unknown>;
 
 function pick(record: DeviceRecord, keys: string[], fallback: unknown = '') {
   for (const key of keys) {
@@ -145,7 +149,10 @@ export async function saveLocalDevice(
 
     if (!deviceId) deviceId = createLocalId('dispositivo');
 
-    const merged = existing
+    const existingPayload = existing
+      ? parseJsonObject<DeviceRecord>(existing.payload_json)
+      : null;
+    let merged = existing
       ? mergeJsonPayload(existing.payload_json, patch)
       : { ...patch };
 
@@ -154,6 +161,13 @@ export async function saveLocalDevice(
     merged.MantenimientoRef = maintenanceId;
     merged.MantenimientoID = maintenanceId;
     merged.maintenanceId = maintenanceId;
+
+    if (existingPayload && !merged.__syncBase) {
+      merged = withSyncBase(
+        merged,
+        maintenanceDeviceSyncBase(existingPayload, maintenanceId),
+      );
+    }
 
     const pendingCreate = await findPendingEntityCreateOperation(
       transaction,

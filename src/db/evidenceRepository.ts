@@ -4,11 +4,15 @@ import {
   enqueueOutboxOperationTx,
   findPendingEntityCreateOperation,
 } from '@/db/outboxRepository';
+import {
+  maintenanceEvidenceSyncBase,
+  withSyncBase,
+} from '@/sync/syncBase';
 import { createLocalId } from '@/utils/localId';
 
-type EvidenceRecord = Record<string, unknown>;
+export type EvidenceRecord = Record<string, unknown>;
 
-function pick(record: EvidenceRecord, keys: string[], fallback = '') {
+function pick(record: EvidenceRecord, keys: string[], fallback: unknown = '') {
   for (const key of keys) {
     const value = record?.[key];
     if (value !== undefined && value !== null) return value;
@@ -155,7 +159,10 @@ export async function saveLocalEvidence(
 
     if (!evidenceId) evidenceId = createLocalId('evidencia');
 
-    const merged = existing
+    const existingPayload = existing
+      ? parseJsonObject<EvidenceRecord>(existing.payload_json)
+      : null;
+    let merged = existing
       ? mergeJsonPayload(existing.payload_json, input.patch)
       : { ...input.patch };
 
@@ -165,6 +172,13 @@ export async function saveLocalEvidence(
     merged.maintenanceId = input.maintenanceId;
     merged.DispositivoMantenimientoRef = input.deviceId;
     merged.deviceId = input.deviceId;
+
+    if (existingPayload && !merged.__syncBase) {
+      merged = withSyncBase(
+        merged,
+        maintenanceEvidenceSyncBase(existingPayload, input.maintenanceId),
+      );
+    }
 
     const pendingCreate = await findPendingEntityCreateOperation(
       transaction,

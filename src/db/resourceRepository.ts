@@ -12,6 +12,9 @@ const RESOURCE_ID_KEYS: Record<string, string[]> = {
   model: ['ModeloID', 'modeloId', 'modelId', 'id'],
   failureType: ['TipoFallaID', 'tipoFallaId', 'failureTypeId', 'id'],
   deviceManufacturerRelation: ['RelacionID', 'relacionId', 'relationshipId', 'id'],
+  assignableUser: ['UsuarioID', 'userId', 'id'],
+  maintenanceQuestion: ['PreguntaDispositivoID', 'questionId', 'id'],
+  maintenanceConfig: ['id'],
 };
 
 const RESOURCE_PARENT_KEYS: Record<string, string[]> = {
@@ -20,6 +23,7 @@ const RESOURCE_PARENT_KEYS: Record<string, string[]> = {
   contact: ['ClienteID', 'clienteId', 'clientId'],
   model: ['FabricanteID', 'fabricanteId', 'manufacturerId'],
   deviceManufacturerRelation: ['TipoDispositivoID', 'tipoDispositivoId', 'deviceTypeId'],
+  maintenanceQuestion: ['TipoDispositivoID', 'tipoDispositivoId'],
 };
 
 const RESOURCE_LABEL_KEYS: Record<string, string[]> = {
@@ -33,6 +37,9 @@ const RESOURCE_LABEL_KEYS: Record<string, string[]> = {
   model: ['Nombre', 'Modelo', 'nombre'],
   failureType: ['Nombre', 'TipoFalla', 'nombre'],
   deviceManufacturerRelation: ['RelacionID', 'id'],
+  assignableUser: ['NombreCompleto', 'Nombre', 'Correo', 'UsuarioID'],
+  maintenanceQuestion: ['Pregunta', 'Clave', 'question'],
+  maintenanceConfig: ['id'],
 };
 
 function first(record: Record<string, unknown>, keys: string[] = []) {
@@ -89,6 +96,21 @@ export async function upsertResourceItemTx(
     active,
   );
   return true;
+}
+
+export async function removeResourceItemTx(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  resource: string,
+  entityId: string,
+) {
+  await db.runAsync(
+    `DELETE FROM local_resource_items
+     WHERE scope_key = ? AND resource = ? AND entity_id = ?`,
+    scopeKey,
+    resource,
+    entityId,
+  );
 }
 
 export async function replaceResourceSnapshot(

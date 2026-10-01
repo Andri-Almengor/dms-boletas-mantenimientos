@@ -1,5 +1,6 @@
 import { AuthProvider } from '@/auth/AuthProvider';
 import { initializeDatabase } from '@/db/database';
+import { SyncProvider } from '@/sync/SyncProvider';
 import { colors } from '@/theme/tokens';
 import { Stack } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
@@ -12,21 +13,23 @@ export default function RootLayout() {
       onInit={initializeDatabase}
     >
       <AuthProvider>
-        <StatusBar style="auto" />
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: colors.surfaceCard },
-            headerTintColor: colors.text,
-            contentStyle: { backgroundColor: colors.surface },
-          }}
-        >
-          <Stack.Screen name="index" options={{ title: 'Mantenimientos' }} />
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="change-password"
-            options={{ title: 'Cambiar contraseña' }}
-          />
-        </Stack>
+        <SyncProvider>
+          <StatusBar style="auto" />
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: colors.surfaceCard },
+              headerTintColor: colors.text,
+              contentStyle: { backgroundColor: colors.surface },
+            }}
+          >
+            <Stack.Screen name="index" options={{ title: 'Mantenimientos' }} />
+            <Stack.Screen name="login" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="change-password"
+              options={{ title: 'Cambiar contraseña' }}
+            />
+          </Stack>
+        </SyncProvider>
       </AuthProvider>
     </SQLiteProvider>
   );
