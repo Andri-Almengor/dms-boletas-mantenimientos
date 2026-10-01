@@ -13,6 +13,8 @@ export type OperationalClock = {
   second: number;
 };
 
+export const AUTO_SYNC_WINDOW_CLOSED_CODE = 'AUTO_SYNC_WINDOW_CLOSED';
+
 function numericPart(
   parts: Intl.DateTimeFormatPart[],
   type: Intl.DateTimeFormatPartTypes,
@@ -44,6 +46,30 @@ export function isAutomaticSyncWindow(now = new Date()) {
 
 export function isSyncAllowed(trigger: SyncTrigger, now = new Date()) {
   return trigger === 'manual' || isAutomaticSyncWindow(now);
+}
+
+export function automaticSyncWindowClosedError() {
+  const error = new Error(
+    'La ventana de sincronización automática finalizó. Los cambios restantes quedan pendientes para la próxima sincronización permitida o manual.',
+  );
+  (error as Error & { code?: string }).code = AUTO_SYNC_WINDOW_CLOSED_CODE;
+  return error;
+}
+
+export function millisecondsUntilAutomaticWindowBoundary(now = new Date()) {
+  const clock = getOperationalClock(now);
+  const secondsNow = (clock.hour * 60 * 60) + (clock.minute * 60) + clock.second;
+  const startSeconds = appConfig.autoSyncStartHour * 60 * 60;
+  const endSeconds = appConfig.autoSyncEndHour * 60 * 60;
+  const secondsPerDay = 24 * 60 * 60;
+
+  if (secondsNow < startSeconds) {
+    return Math.max(0, (startSeconds - secondsNow) * 1000);
+  }
+  if (secondsNow < endSeconds) {
+    return Math.max(0, (endSeconds - secondsNow) * 1000);
+  }
+  return ((secondsPerDay - secondsNow) + startSeconds) * 1000;
 }
 
 /**
