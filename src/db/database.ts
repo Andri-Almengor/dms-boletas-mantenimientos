@@ -4,6 +4,8 @@ import {
   LOCAL_SCHEMA_VERSION,
 } from '@/db/schema';
 
+export const DATABASE_NAME = 'dms-boletas-mantenimientos.db';
+
 async function ensureMigrationTable(db: SQLiteDatabase) {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
