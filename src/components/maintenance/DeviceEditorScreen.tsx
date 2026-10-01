@@ -755,6 +755,12 @@ export function DeviceEditorScreen({
     form.modelName,
   );
   const typeValue = form.deviceTypeId || `legacy:${form.category}`;
+  const editorDeviceRecord = deviceEditorPayload(
+    form,
+    maintenanceId,
+    questions,
+    maintenance.ProyectoChecklistJSON || maintenance.projectChecklist,
+  );
 
   return (
     <>
@@ -791,7 +797,7 @@ export function DeviceEditorScreen({
             </View>
           ) : null}
 
-          <Section title="Identificación">
+          <Section title="Identificación y ubicación">
             <OptionSheet
               label="Ubicación del equipo *"
               value={form.equipmentLocationId}
@@ -803,6 +809,9 @@ export function DeviceEditorScreen({
               onChange={(selected) => {
                 const id = String(selected);
                 const option = equipmentOptions.find((item) => item.value === id);
+                if (locationDraft?.localId !== id) {
+                  setLocationDraft(null);
+                }
                 patch({
                   equipmentLocationId: id,
                   equipmentLocationName: option?.label || '',
@@ -810,23 +819,16 @@ export function DeviceEditorScreen({
               }}
             />
 
-            <NativeDateField
-              label="Fecha de trabajo"
-              value={form.workDate}
-              disabled={readOnly}
-              onChange={(workDate) => patch({ workDate })}
-            />
-
-            <OptionSheet
-              label="Técnicos"
-              values={form.technicianIds}
-              options={technicianOptions}
-              multiple
-              disabled={readOnly}
-              onChange={(selected) => patch({
-                technicianIds: Array.isArray(selected) ? selected : [String(selected)],
-              })}
-            />
+            {canCreateLocation && !readOnly ? (
+              <Pressable
+                onPress={openLocationCreator}
+                style={styles.inlineAddButton}
+              >
+                <Text style={styles.inlineAddButtonText}>
+                  + Agregar ubicación del equipo
+                </Text>
+              </Pressable>
+            ) : null}
 
             <OptionSheet
               label="Tipo de dispositivo *"
@@ -903,6 +905,26 @@ export function DeviceEditorScreen({
               placeholder="AA:BB:CC:DD:EE:FF"
               onChange={(macAddress) => patch({
                 macAddress: formatMacAddressInput(macAddress),
+              })}
+            />
+          </Section>
+
+          <Section title="Fecha y grupo de trabajo">
+            <NativeDateField
+              label="Fecha de trabajo"
+              value={form.workDate}
+              disabled={readOnly}
+              onChange={(workDate) => patch({ workDate })}
+            />
+
+            <OptionSheet
+              label="Técnicos"
+              values={form.technicianIds}
+              options={technicianOptions}
+              multiple
+              disabled={readOnly}
+              onChange={(selected) => patch({
+                technicianIds: Array.isArray(selected) ? selected : [String(selected)],
               })}
             />
           </Section>
@@ -1031,29 +1053,37 @@ export function DeviceEditorScreen({
             />
           </Section>
 
-          <View style={styles.stageNotice}>
-            <Text style={styles.stageNoticeTitle}>Evidencias</Text>
-            <Text style={styles.stageNoticeText}>
-              {mode === 'create'
-                ? 'Guarde primero el dispositivo. Después podrá tomar fotos, grabar videos o seleccionar evidencias desde su detalle, incluso sin conexión.'
-                : 'Las evidencias se administran desde el detalle del dispositivo y siempre se guardan primero en el almacenamiento local.'}
-            </Text>
-            {mode === 'edit' && form.id ? (
-              <Pressable
-                disabled={saving}
-                onPress={() => router.push({
-                  pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
-                  params: {
-                    maintenanceId,
-                    deviceId: form.id,
-                  },
-                })}
-                style={styles.evidenceButton}
-              >
-                <Text style={styles.evidenceButtonText}>Gestionar evidencias</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          {mode === 'create' ? (
+            <MaintenanceEvidenceDraftSection
+              maintenanceType={maintenanceType}
+              device={editorDeviceRecord}
+              items={draftEvidence}
+              onChange={setDraftEvidence}
+              disabled={readOnly || saving}
+            />
+          ) : (
+            <View style={styles.stageNotice}>
+              <Text style={styles.stageNoticeTitle}>Evidencias</Text>
+              <Text style={styles.stageNoticeText}>
+                Las evidencias existentes continúan disponibles desde el detalle del dispositivo.
+              </Text>
+              {form.id ? (
+                <Pressable
+                  disabled={saving}
+                  onPress={() => router.push({
+                    pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
+                    params: {
+                      maintenanceId,
+                      deviceId: form.id,
+                    },
+                  })}
+                  style={styles.evidenceButton}
+                >
+                  <Text style={styles.evidenceButtonText}>Gestionar evidencias</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
         </ScrollView>
 
         {!readOnly ? (
@@ -1091,6 +1121,63 @@ export function DeviceEditorScreen({
           </View>
         ) : null}
       </View>
+
+      <Modal
+        visible={locationModalOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setLocationModalOpen(false)}
+      >
+        <View style={styles.modalScreen}>
+          <View style={styles.modalHeader}>
+            <Pressable
+              onPress={() => setLocationModalOpen(false)}
+              style={styles.modalHeaderAction}
+            >
+              <Text style={styles.modalCancelText}>Cancelar</Text>
+            </Pressable>
+            <Text style={styles.modalTitle}>Nueva ubicación del equipo</Text>
+            <Pressable
+              onPress={acceptLocationDraft}
+              style={styles.modalHeaderAction}
+            >
+              <Text style={styles.modalSaveText}>Agregar</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.modalContent}
+          >
+            <Text style={styles.modalHelp}>
+              Igual que en la web, esta ubicación pertenece a una ubicación principal del cliente.
+              Se creará en el servidor cuando corresponda sincronizar.
+            </Text>
+
+            <OptionSheet
+              label="Ubicación principal *"
+              value={newLocationParentId}
+              options={clientLocationOptions}
+              onChange={(value) => setNewLocationParentId(String(value))}
+            />
+
+            <Field
+              label="Nombre *"
+              value={newLocationName}
+              onChange={setNewLocationName}
+              placeholder="Ej. Piso 2 · Cuarto de servidores"
+            />
+
+            <Field
+              label="Descripción"
+              value={newLocationDescription}
+              onChange={setNewLocationDescription}
+              multiline
+              placeholder="Detalle opcional"
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -1319,6 +1406,63 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '900',
     fontSize: 11,
+  },
+  inlineAddButton: {
+    alignSelf: 'flex-start',
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineAddButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+    fontSize: 11,
+  },
+  modalScreen: {
+    flex: 1,
+    backgroundColor: colors.surface,
+  },
+  modalHeader: {
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.outlineSoft,
+    backgroundColor: colors.surfaceCard,
+  },
+  modalHeaderAction: {
+    width: 76,
+    minHeight: sizing.touchTargetMin,
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    color: colors.muted,
+    fontWeight: '800',
+  },
+  modalTitle: {
+    flex: 1,
+    color: colors.text,
+    textAlign: 'center',
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  modalSaveText: {
+    color: colors.primary,
+    textAlign: 'right',
+    fontWeight: '900',
+  },
+  modalContent: {
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  modalHelp: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 17,
   },
   footer: {
     position: 'absolute',
