@@ -1,5 +1,9 @@
 import { AuthProvider } from '@/auth/AuthProvider';
-import { initializeDatabase } from '@/db/database';
+import {
+  DATABASE_NAME,
+  initializeDatabase,
+} from '@/db/database';
+import '@/sync/backgroundSyncTask';
 import { SyncProvider } from '@/sync/SyncProvider';
 import { colors } from '@/theme/tokens';
 import { Stack } from 'expo-router';
@@ -9,7 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 export default function RootLayout() {
   return (
     <SQLiteProvider
-      databaseName="dms-boletas-mantenimientos.db"
+      databaseName={DATABASE_NAME}
       onInit={initializeDatabase}
     >
       <AuthProvider>
