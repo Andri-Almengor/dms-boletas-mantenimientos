@@ -5,10 +5,11 @@ import test from 'node:test';
 const scopeSource = await readFile(new URL('../src/auth/dataScope.ts', import.meta.url), 'utf8');
 const outboxSource = await readFile(new URL('../src/db/outboxRepository.ts', import.meta.url), 'utf8');
 
-test('scope local depende de usuario y permisos', () => {
+test('scope local depende del usuario y de la huella exacta de permisos', () => {
   assert.match(scopeSource, /UsuarioID/);
   assert.match(scopeSource, /permissionFingerprint/);
-  assert.match(scopeSource, /hashText/);
+  assert.match(scopeSource, /join\('\|'\)/);
+  assert.doesNotMatch(scopeSource, /hashText/);
 });
 
 test('las lecturas y escrituras de outbox están limitadas por scope_key', () => {

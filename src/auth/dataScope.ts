@@ -4,26 +4,17 @@ function clean(value: unknown) {
   return String(value ?? '').trim();
 }
 
-function hashText(value = '') {
-  let hash = 2166136261;
-  const text = String(value);
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 export function permissionFingerprint(permissions: string[] = []) {
   return [...new Set(permissions.map(String).filter(Boolean))]
     .sort()
-    .join(',');
+    .join('|');
 }
 
 /**
- * Igual que la caché web, el almacenamiento operativo se separa por usuario y
- * huella de permisos. Un cambio de permisos crea un scope nuevo y evita exponer
- * datos descargados bajo una autorización anterior.
+ * El almacenamiento operativo se separa por usuario y por la huella EXACTA de
+ * permisos. No usamos un hash corto: un cambio de autorización siempre produce
+ * un scope distinto y los datos descargados bajo permisos anteriores quedan
+ * inaccesibles para el scope actual.
  */
 export function buildLocalDataScope(
   user: DmsUser | null,
@@ -31,5 +22,5 @@ export function buildLocalDataScope(
 ) {
   const userId = clean(user?.UsuarioID || user?.id);
   if (!userId) return '';
-  return `u:${userId}:${hashText(permissionFingerprint(permissions))}`;
+  return `u:${userId}:p:${permissionFingerprint(permissions)}`;
 }

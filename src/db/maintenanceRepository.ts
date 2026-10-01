@@ -8,12 +8,25 @@ import { createLocalId } from '@/utils/localId';
 
 export type MaintenanceRecord = Record<string, unknown>;
 
-function pick(record: MaintenanceRecord, keys: string[], fallback = '') {
+function pick(record: MaintenanceRecord, keys: string[], fallback: unknown = '') {
   for (const key of keys) {
     const value = record?.[key];
     if (value !== undefined && value !== null) return value;
   }
   return fallback;
+}
+
+function jsonArrayText(value: unknown) {
+  if (Array.isArray(value)) return JSON.stringify(value.map(String).filter(Boolean));
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return JSON.stringify(parsed.map(String).filter(Boolean));
+    } catch {
+      return JSON.stringify(value.split(/[;,]/).map((item) => item.trim()).filter(Boolean));
+    }
+  }
+  return '[]';
 }
 
 function maintenanceId(record: MaintenanceRecord) {
@@ -86,7 +99,7 @@ async function upsertMaintenanceRow(
     String(pick(record, ['TituloMantenimiento', 'titulo'])),
     String(pick(record, ['Fecha', 'fecha'])),
     String(pick(record, ['FechaFinalizacion', 'fechaFinalizacion'])),
-    stringifyJson(pick(record, ['ResponsableIDs', 'responsables', 'ResponsableIDsJSON'], []), '[]'),
+    jsonArrayText(pick(record, ['ResponsableIDs', 'responsables', 'ResponsableIDsJSON'], [])),
     stringifyJson(record),
     syncStatus,
     serverUpdatedAt,

@@ -8,12 +8,25 @@ import { createLocalId } from '@/utils/localId';
 
 type DeviceRecord = Record<string, unknown>;
 
-function pick(record: DeviceRecord, keys: string[], fallback = '') {
+function pick(record: DeviceRecord, keys: string[], fallback: unknown = '') {
   for (const key of keys) {
     const value = record?.[key];
     if (value !== undefined && value !== null) return value;
   }
   return fallback;
+}
+
+function jsonArrayText(value: unknown) {
+  if (Array.isArray(value)) return JSON.stringify(value.map(String).filter(Boolean));
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return JSON.stringify(parsed.map(String).filter(Boolean));
+    } catch {
+      return JSON.stringify(value.split(/[;,]/).map((item) => item.trim()).filter(Boolean));
+    }
+  }
+  return '[]';
 }
 
 function idOf(record: DeviceRecord) {
@@ -94,7 +107,7 @@ async function upsertDeviceRow(
     String(pick(record, ['DireccionMAC', 'macAddress'])),
     String(pick(record, ['Estado', 'estado'])),
     String(pick(record, ['FechaTrabajo', 'fechaTrabajo'])),
-    stringifyJson(pick(record, ['TecnicoIDs', 'tecnicoIds', 'TecnicoIDsJSON'], []), '[]'),
+    jsonArrayText(pick(record, ['TecnicoIDs', 'tecnicoIds', 'TecnicoIDsJSON'], [])),
     stringifyJson(record),
     syncStatus,
     updatedAt,
