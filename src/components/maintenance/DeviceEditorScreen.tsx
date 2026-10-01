@@ -1,11 +1,17 @@
 import { NativeDateField } from '@/components/forms/NativeDateField';
 import { OptionItem, OptionSheet } from '@/components/forms/OptionSheet';
 import { DynamicQuestionField } from '@/components/maintenance/DynamicQuestionField';
+import {
+  DraftMaintenanceEvidence,
+  MaintenanceEvidenceDraftSection,
+} from '@/components/maintenance/MaintenanceEvidenceDraftSection';
+import { MaintenanceEvidenceManager } from '@/components/maintenance/MaintenanceEvidenceManager';
 import { ProjectProgressEditor } from '@/components/maintenance/ProjectProgressEditor';
 import { useAuth } from '@/auth/AuthProvider';
 import {
   deleteLocalDevice,
-  saveLocalDevice,
+  EquipmentLocationDraft,
+  saveLocalDeviceWithEvidence,
 } from '@/db/deviceRepository';
 import {
   readLocalDeviceDetail,
@@ -23,6 +29,7 @@ import {
   validateDeviceEditor,
 } from '@/features/maintenance/maintenanceEditorDomain';
 import {
+  canCreateOperationalClientData,
   canDeleteMaintenanceDevice,
   canEditMaintenance,
   maintenanceReadOnly,
@@ -40,6 +47,12 @@ import {
   canonicalMaintenanceCategoryName,
   MAINTENANCE_CATEGORIES,
 } from '@/features/maintenance/maintenanceCategories';
+import {
+  createEvidencePayload,
+  projectEvidenceTargets,
+} from '@/features/maintenance/maintenanceEvidence';
+import { removeLocalEvidenceFile } from '@/services/maintenanceEvidenceStorage';
+import { createLocalId } from '@/utils/localId';
 import { formatMacAddressInput } from '@/utils/macAddress';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
@@ -52,11 +65,13 @@ import { useSQLiteContext } from 'expo-sqlite';
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -79,6 +94,7 @@ type CatalogState = {
   models: RecordLike[];
   relations: RecordLike[];
   users: RecordLike[];
+  clientLocations: RecordLike[];
   equipment: RecordLike[];
   questions: MaintenanceQuestion[];
 };
@@ -89,6 +105,7 @@ const EMPTY_CATALOGS: CatalogState = {
   models: [],
   relations: [],
   users: [],
+  clientLocations: [],
   equipment: [],
   questions: [],
 };
@@ -167,6 +184,17 @@ export function DeviceEditorScreen({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [draftEvidence, setDraftEvidence] = useState<DraftMaintenanceEvidence[]>([]);
+  const draftEvidenceRef = useRef<DraftMaintenanceEvidence[]>([]);
+  const draftDeviceIdRef = useRef(
+    mode === 'create' ? createLocalId('dispositivo') : deviceId,
+  );
+  const savedDraftRef = useRef(false);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [locationDraft, setLocationDraft] = useState<EquipmentLocationDraft | null>(null);
+  const [newLocationParentId, setNewLocationParentId] = useState('');
+  const [newLocationName, setNewLocationName] = useState('');
+  const [newLocationDescription, setNewLocationDescription] = useState('');
 
   const allowed = canEditMaintenance(permissions);
   const readOnly = maintenance
@@ -191,13 +219,17 @@ export function DeviceEditorScreen({
         }
 
         const locationId = first(maintenanceRow, ['UbicacionID', 'ubicacionId']);
+        const clientId = first(
+          maintenanceRow,
+          ['ClienteID', 'ClienteRef', 'clienteId'],
+        );
         const [
           deviceTypes,
           manufacturers,
           models,
           relations,
           users,
-          equipment,
+          clientLocationRows,
           maintenanceConfig,
         ] = await Promise.all([
           listResourceItems(db, dataScope, 'deviceType'),
@@ -205,11 +237,46 @@ export function DeviceEditorScreen({
           listResourceItems(db, dataScope, 'model'),
           listResourceItems(db, dataScope, 'deviceManufacturerRelation'),
           listResourceItems(db, dataScope, 'assignableUser'),
-          locationId
-            ? listResourceItems(db, dataScope, 'equipmentLocation', locationId)
+          clientId
+            ? listResourceItems(db, dataScope, 'clientLocation', clientId)
             : Promise.resolve([]),
           listResourceItems(db, dataScope, 'maintenanceConfig'),
         ]);
+
+        const fallbackLocation = locationId
+          && !clientLocationRows.some((row) => (
+            first(row, ['UbicacionID', 'ubicacionId', 'id']) === locationId
+          ))
+          ? [{
+              UbicacionID: locationId,
+              Nombre: first(
+                maintenanceRow,
+                ['Ubicacion', 'ubicacion'],
+                'Ubicación del mantenimiento',
+              ),
+            }]
+          : [];
+        const clientLocations = [
+          ...clientLocationRows,
+          ...fallbackLocation,
+        ];
+        const equipmentGroups = await Promise.all(
+          clientLocations.map((row) => {
+            const parentId = first(
+              row,
+              ['UbicacionID', 'ubicacionId', 'id'],
+            );
+            return parentId
+              ? listResourceItems(
+                  db,
+                  dataScope,
+                  'equipmentLocation',
+                  parentId,
+                )
+              : Promise.resolve([]);
+          }),
+        );
+        const equipment = equipmentGroups.flat();
 
         const config = maintenanceConfig[0] || {};
         const rawQuestions = Array.isArray(config.questions)
@@ -276,6 +343,7 @@ export function DeviceEditorScreen({
           users: users.filter((row) => (
             first(row, ['Estado'], 'ACTIVO').toUpperCase() !== 'INACTIVO'
           )),
+          clientLocations,
           equipment,
           questions: questionRows,
         });
@@ -293,6 +361,17 @@ export function DeviceEditorScreen({
     load().catch(() => undefined);
     return () => { active = false; };
   }, [db, dataScope, user, maintenanceId, deviceId, mode]);
+
+  useEffect(() => {
+    draftEvidenceRef.current = draftEvidence;
+  }, [draftEvidence]);
+
+  useEffect(() => () => {
+    if (savedDraftRef.current) return;
+    for (const item of draftEvidenceRef.current) {
+      removeLocalEvidenceFile(item.localUri).catch(() => undefined);
+    }
+  }, []);
 
   const maintenanceType = first(
     maintenance || undefined,
