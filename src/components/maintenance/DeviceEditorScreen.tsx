@@ -1217,6 +1217,8 @@ export function DeviceEditorScreen({
       <EquipmentLocationCreatorModal
         visible={locationModalOpen}
         parentOptions={clientLocationOptions}
+        title="Nueva ubicación del equipo"
+        parentLabel="Ubicación principal *"
         initialParentId={first(
           maintenance || undefined,
           ['UbicacionID', 'ubicacionId'],
