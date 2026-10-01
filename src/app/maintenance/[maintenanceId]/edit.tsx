@@ -5,7 +5,6 @@ export default function EditMaintenanceScreen() {
   const params = useLocalSearchParams<{ maintenanceId: string }>();
   return (
     <MaintenanceEditorScreen
-      mode="edit"
       maintenanceId={String(params.maintenanceId || '')}
     />
   );
