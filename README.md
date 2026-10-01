@@ -169,6 +169,97 @@ Si un `CREATE` ya está `IN_FLIGHT`, no se borra a ciegas: el `DELETE` queda dep
 
 Las evidencias todavía no se editan en este formulario. Cámara, galería, ANTES/DESPUÉS y gestión completa de archivos corresponden a la Etapa 6.
 
+### Etapa 6 — Evidencias offline ✅
+
+La captura, edición de metadatos, eliminación y visualización de evidencias ya funciona sobre la arquitectura local-first.
+
+#### Captura y selección
+
+Desde el detalle de un dispositivo se puede:
+
+- tomar una fotografía con la cámara;
+- seleccionar una fotografía y usar el editor nativo de recorte/rotación;
+- seleccionar varias imágenes o videos de la galería;
+- grabar videos de hasta 90 segundos.
+
+Se conservan los límites actuales de DMS Boletas:
+
+- imagen: hasta **15 MB**;
+- video: hasta **300 MB**;
+- duración máxima de video: **90 segundos**.
+
+#### Persistencia local
+
+El archivo se copia a almacenamiento persistente del dispositivo antes de depender de la red.
+
+En SQLite se guarda únicamente:
+
+- URI local;
+- MIME;
+- nombre;
+- tamaño;
+- metadatos;
+- relación con mantenimiento/dispositivo;
+- estado de sincronización.
+
+No se persiste Base64 en SQLite.
+
+El registro de `local_files`, la evidencia local y la operación de outbox se escriben dentro de la misma transacción SQLite.
+
+#### Mantenimiento y Proyecto
+
+Para mantenimiento se conservan:
+
+- **Antes**;
+- **Después**;
+- nota;
+- fecha/hora original de captura.
+
+Para Proyecto se conserva la misma política del backend:
+
+- evidencia del dispositivo principal;
+- evidencia de un componente relacionado;
+- clave de relación;
+- ID local del componente;
+- tipo y nombre del componente.
+
+La aplicación reutiliza los componentes ya configurados en las preguntas dinámicas; no crea un catálogo paralelo.
+
+#### Edición y borrado
+
+Los metadatos pueden modificarse sin conexión.
+
+Si una evidencia todavía no llegó al servidor, la outbox reutiliza una única intención de subida en lugar de duplicarla.
+
+Si la subida ya está `IN_FLIGHT`, una edición o eliminación posterior queda ordenada detrás de esa operación para evitar estados ambiguos.
+
+El borrado reutiliza `maintenance.images.delete` y los permisos existentes.
+
+#### Subidas grandes
+
+Las imágenes pequeñas reutilizan `maintenance.images.upload`.
+
+Los videos y archivos mayores a 6 MB reutilizan el flujo segmentado existente:
+
+- `maintenance.images.large.init`;
+- `maintenance.images.large.chunk`.
+
+Los bloques son de hasta 6 MB y se leen desde el archivo local por posición/longitud, evitando convertir un video completo de cientos de MB a Base64 en memoria.
+
+#### Evidencia remota protegida
+
+Una evidencia que solo existe en el servidor se obtiene mediante `maintenance.media.get`.
+
+El backend devuelve un enlace temporal protegido y la app lo copia a caché local persistente. No se accede directamente a Google Drive ni se hacen públicos los archivos.
+
+Una vez descargada, la evidencia puede volver a abrirse offline.
+
+#### Reproductor
+
+Las imágenes se amplían en un lightbox compartido.
+
+Los videos locales/caché se reproducen con `expo-video` y controles nativos.
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -221,7 +312,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 3. **SyncCoordinator** ✅
 4. **Mantenimientos offline** ✅
 5. **Edición offline** ✅
-6. **Evidencias** — cámara/galería, almacenamiento persistente, ANTES/DESPUÉS y caché segura de medios remotos.
+6. **Evidencias** ✅
 7. **Firmas y finalización** — firma, `FINALIZE_PENDING`, dependencias y conflictos.
 8. **Triggers automáticos** — foreground, recuperación de red, cambio local y `expo-background-task`, limitados a 07:00–17:00.
 9. **Hardening** — concurrencia, recuperación, rendimiento, pruebas y consistencia web/móvil.
