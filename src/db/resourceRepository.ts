@@ -160,6 +160,37 @@ export async function listResourceItems(
   });
 }
 
+export async function listResourceItemsByParents(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  resource: string,
+  parentIds: string[],
+) {
+  const ids = [...new Set(
+    parentIds.map((value) => String(value || '').trim()).filter(Boolean),
+  )];
+  if (!ids.length) return [];
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = await db.getAllAsync<{ payload_json: string }>(
+    `SELECT payload_json
+     FROM local_resource_items
+     WHERE scope_key = ?
+       AND resource = ?
+       AND parent_id IN (${placeholders})
+       AND active = 1
+     ORDER BY parent_id COLLATE NOCASE ASC, label COLLATE NOCASE ASC`,
+    scopeKey,
+    resource,
+    ...ids,
+  );
+
+  return rows.map((row) => {
+    try { return JSON.parse(row.payload_json) as Record<string, unknown>; }
+    catch { return {}; }
+  });
+}
+
 
 export async function remapCreatedEquipmentLocationTx(
   db: SQLiteDatabase,
