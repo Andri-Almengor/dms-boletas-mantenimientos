@@ -267,7 +267,7 @@ export async function saveLocalEquipmentLocation(
       scopeKey,
       maintenanceId,
       draft,
-      maintenanceCreate?.operation_id || '',
+      maintenanceDependency.dependsOnOperationId || '',
     );
   });
   return result;
@@ -304,6 +304,9 @@ async function saveLocalDeviceTx(
     'maintenance',
     maintenanceId,
   );
+  const maintenanceDependency = {
+    dependsOnOperationId: maintenanceCreate?.operation_id,
+  };
 
   let equipmentDependencyId = '';
   const locationDraft = options.equipmentLocationDraft || null;
@@ -389,7 +392,7 @@ async function saveLocalDeviceTx(
     payload: merged,
     priority: 60,
     dependsOnOperationId: equipmentDependencyId
-      || maintenanceCreate?.operation_id
+      || maintenanceDependency.dependsOnOperationId
       || '',
   });
   operationId = queued.operationId;
