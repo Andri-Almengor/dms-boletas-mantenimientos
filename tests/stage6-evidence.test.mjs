@@ -34,8 +34,9 @@ test('captura local persiste el archivo antes de crear la operación de sincroni
   assert.match(storage, /documentDirectory/);
   assert.match(storage, /copyAsync/);
   assert.match(repository, /withExclusiveTransactionAsync/);
-  assert.match(repository, /registerLocalFile\(transaction/);
-  assert.match(repository, /enqueueOutboxOperationTx\(transaction/);
+  assert.match(repository, /saveLocalEvidenceTx/);
+  assert.match(repository, /registerLocalFile\(db/);
+  assert.match(repository, /enqueueOutboxOperationTx\(db/);
   assert.match(manager, /persistPickedEvidenceAsset/);
   assert.match(manager, /saveLocalEvidence/);
   assert.doesNotMatch(manager, /actionRequest\(/);
