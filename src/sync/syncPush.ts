@@ -14,6 +14,7 @@ import {
 } from '@/db/evidenceRepository';
 import { getLocalFile } from '@/db/localFileRepository';
 import { upsertRemoteMaintenance } from '@/db/maintenanceRepository';
+import { remapCreatedEquipmentLocationTx } from '@/db/resourceRepository';
 import { applyMaintenanceFinalizationAcceptedTx } from '@/db/maintenanceFinalizationRepository';
 import { markMaintenanceSignatureSyncedTx } from '@/db/maintenanceSignatureRepository';
 import {
@@ -402,6 +403,19 @@ async function completeSuccess(
         maintenanceId: operation.aggregate_id,
         result,
       });
+      return;
+    }
+
+    if (
+      operation.operation_kind === 'CREATE'
+      && operation.entity_type === 'equipmentLocation'
+    ) {
+      await remapCreatedEquipmentLocationTx(
+        transaction,
+        scopeKey,
+        operation.entity_id,
+        resultRecord(operation, result),
+      );
       return;
     }
 
