@@ -34,6 +34,7 @@ const tokens = await readFile(
 test('detalle organiza inventario por ubicación y permite alta rápida de dispositivo en esa zona', () => {
   assert.match(detail, /Ubicaciones y dispositivos/);
   assert.match(detail, /locationAddButton/);
+  assert.match(detail, />Dispositivo<\/Text>/);
   assert.match(detail, /equipmentLocationId: location\.locationId/);
   assert.match(detail, /equipmentLocationName: location\.title/);
   assert.match(newDevice, /initialEquipmentLocationId/);
@@ -63,6 +64,7 @@ test('estado inactivo de sync siempre limpia syncing y BUSY no deja spinner perm
   const busyBranches = syncProvider.match(/result\.status === 'BUSY'/g) || [];
   assert.ok(busyBranches.length >= 3);
   assert.match(syncProvider, /result\.status === 'BUSY'[\s\S]*syncingRef\.current = false;[\s\S]*refreshStatus/);
+  assert.doesNotMatch(detail, /syncProgressText/);
 });
 
 test('tema móvil reutiliza exactamente la familia visual light y dark de DMS Boletas', () => {
