@@ -66,3 +66,9 @@ test('confirmar DELETE no vuelve a insertar el dispositivo', () => {
   assert.ok(upsert > deleteGuard);
   assert.match(push, /markDeviceDeleteConfirmed/);
 });
+
+
+test('solo lectura normaliza FINALIZADO y FINALIZADA sin crear estados nuevos', () => {
+  assert.match(permissions, /\['FINALIZADO', 'FINALIZADA'\]/);
+  assert.match(permissions, /maintenanceReadOnly/);
+});

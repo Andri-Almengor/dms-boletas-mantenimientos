@@ -89,6 +89,86 @@ La respuesta autorizada de `maintenance.get` se persiste en SQLite sin pisar:
 
 La descarga/caché segura de imágenes remotas se completará en la etapa específica de evidencias.
 
+### Etapa 5 — Edición offline ✅
+
+La edición ya funciona sin depender de Internet. **Guardar** siempre escribe primero en SQLite y crea/actualiza la outbox.
+
+#### Mantenimientos
+
+- Un único `MaintenanceEditorScreen` sirve para **Nuevo** y **Editar**.
+- Reutiliza los permisos existentes:
+  - `MANTENIMIENTOS_CREAR` / `MANTENIMIENTOS_GESTIONAR` / `BOLETAS_CREAR`;
+  - `MANTENIMIENTOS_EDITAR` / `MANTENIMIENTOS_GESTIONAR` / `BOLETAS_EDITAR`;
+  - `USUARIOS_GESTIONAR` conserva el comportamiento administrativo existente.
+- Cliente, ubicación y responsables se leen de catálogos SQLite.
+- Fechas usan selector nativo.
+- Cantidades esperadas reutilizan los mismos 11 tipos históricos de mantenimiento.
+- Proyecto permite configurar checklist propio por tipo de dispositivo.
+- No se permite cambiar Mantenimiento↔Proyecto si ya existen dispositivos. La validación considera tanto dispositivos locales como el conteo conocido del resumen remoto.
+- `FINALIZADO` y `FINALIZADA` quedan solo lectura para usuarios no administrativos.
+
+#### Dispositivos
+
+Un único `DeviceEditorScreen` sirve para **Agregar** y **Editar**.
+
+Incluye:
+
+- ubicación de equipo;
+- fecha de trabajo;
+- técnicos;
+- tipo;
+- fabricante;
+- modelo;
+- nombre;
+- serie;
+- MAC;
+- funcionamiento;
+- en uso;
+- estado;
+- observaciones.
+
+Crear/editar reutiliza:
+
+- `maintenance.devices.create`;
+- `maintenance.devices.update`;
+- IDs locales estables;
+- `__syncBase`;
+- dependencias de outbox.
+
+Si el mantenimiento todavía es local, el dispositivo queda dependiente del `CREATE` del mantenimiento.
+
+#### Preguntas dinámicas y Proyecto
+
+La app no mantiene un catálogo paralelo.
+
+Las preguntas se obtienen de `maintenance.config` ya sincronizado y soportan:
+
+- `SI_NO`;
+- `OPCIONES`;
+- `MAC`;
+- `NUMERO`;
+- `CANTIDAD`;
+- `RELACION_DISPOSITIVO`.
+
+Se conservan preguntas históricas y el snapshot enviado en `RespuestasJSON/questionDetails`.
+
+Las relaciones de Proyecto reutilizan tipo relacionado, cantidad, fabricante, modelo, nombre, serie, MAC y preguntas hijas. Las validaciones de campos obligatorios y MAC se realizan localmente y vuelven a validarse en backend al sincronizar.
+
+El checklist de progreso puede permanecer incompleto: igual que en la web, eso mantiene el dispositivo en estado pendiente automático pero **no impide guardar el trabajo parcial**.
+
+#### Eliminación de dispositivos
+
+Se reutiliza `maintenance.devices.delete` y los permisos actuales del backend:
+
+- administración puede eliminar;
+- técnicos con permiso de edición pueden eliminar mientras el mantenimiento siga `PENDIENTE`.
+
+Para dispositivos únicamente locales, el alta pendiente se cancela localmente.
+
+Si un `CREATE` ya está `IN_FLIGHT`, no se borra a ciegas: el `DELETE` queda dependiente de ese alta. La respuesta del `CREATE` tampoco vuelve a materializar el dispositivo porque el SyncCoordinator detecta el trabajo local más nuevo.
+
+Las evidencias todavía no se editan en este formulario. Cámara, galería, ANTES/DESPUÉS y gestión completa de archivos corresponden a la Etapa 6.
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -140,7 +220,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 2. **Persistencia operativa local** ✅
 3. **SyncCoordinator** ✅
 4. **Mantenimientos offline** ✅
-5. **Edición offline** — dispositivos, proyecto/checklists, observaciones y relaciones configurables.
+5. **Edición offline** ✅
 6. **Evidencias** — cámara/galería, almacenamiento persistente, ANTES/DESPUÉS y caché segura de medios remotos.
 7. **Firmas y finalización** — firma, `FINALIZE_PENDING`, dependencias y conflictos.
 8. **Triggers automáticos** — foreground, recuperación de red, cambio local y `expo-background-task`, limitados a 07:00–17:00.

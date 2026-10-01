@@ -63,6 +63,7 @@ export function maintenanceReadOnly(
   permissions: string[],
   maintenanceStatus: unknown,
 ) {
-  return String(maintenanceStatus || '').trim().toUpperCase() === 'FINALIZADO'
+  const status = String(maintenanceStatus || '').trim().toUpperCase();
+  return ['FINALIZADO', 'FINALIZADA'].includes(status)
     && !isMaintenanceAdministrator(permissions);
 }
