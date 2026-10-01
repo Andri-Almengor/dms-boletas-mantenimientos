@@ -16,9 +16,14 @@ test('crear mantenimiento es exclusivo de la web', async () => {
   );
 });
 
-test('editar mantenimiento existente sigue reutilizando MaintenanceEditorScreen', () => {
+test('editar mantenimiento existente sigue reutilizando MaintenanceEditorScreen sin modo create', async () => {
   assert.match(editMaintenance, /MaintenanceEditorScreen/);
-  assert.match(editMaintenance, /mode="edit"/);
+  assert.doesNotMatch(editMaintenance, /mode="create"|mode="edit"/);
+  const maintenanceEditor = await readFile(
+    new URL('../src/components/maintenance/MaintenanceEditorScreen.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(maintenanceEditor, /canCreateMaintenance|createMaintenanceEditorForm|mode:\s*'create'/);
 });
 
 test('Agregar y Editar dispositivo reutilizan DeviceEditorScreen', () => {
