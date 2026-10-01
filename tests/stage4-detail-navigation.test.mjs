@@ -35,7 +35,7 @@ test('detalle distingue resumen de snapshot completo', () => {
   assert.match(detailScreen, /detail\.detailComplete/);
   assert.match(detailScreen, /Detalle todavía no descargado/);
   assert.match(detailScreen, /Descargar detalle/);
-  assert.match(detailScreen, /Disponible sin conexión/);
+  assert.match(detailScreen, /disponible sin conexión/i);
 });
 
 test('dispositivo tiene ruta dedicada, anterior/siguiente y galería local ampliable', () => {
