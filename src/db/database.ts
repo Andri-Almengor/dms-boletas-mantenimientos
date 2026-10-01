@@ -1,35 +1,50 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import {
+  LOCAL_MIGRATIONS,
+  LOCAL_SCHEMA_VERSION,
+} from '@/db/schema';
 
-const LOCAL_SCHEMA_VERSION = 1;
+async function ensureMigrationTable(db: SQLiteDatabase) {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+  `);
+}
 
-/**
- * Etapa 1 crea únicamente la infraestructura local.
- * Las tablas operativas, outbox e índices se agregan en la Etapa 2.
- */
-export async function initializeDatabase(db: SQLiteDatabase) {
-  await db.execAsync([
-    'PRAGMA journal_mode = WAL;',
-    'PRAGMA foreign_keys = ON;',
-    'CREATE TABLE IF NOT EXISTS schema_migrations (',
-    '  version INTEGER PRIMARY KEY NOT NULL,',
-    '  applied_at TEXT NOT NULL',
-    ');',
-    'CREATE TABLE IF NOT EXISTS app_meta (',
-    '  key TEXT PRIMARY KEY NOT NULL,',
-    '  value TEXT NOT NULL,',
-    '  updated_at TEXT NOT NULL',
-    ');',
-  ].join('\n'));
-
-  const current = await db.getFirstAsync<{ version: number }>(
+async function currentSchemaVersion(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ version: number }>(
     'SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations',
   );
+  return Number(row?.version || 0);
+}
 
-  if (Number(current?.version || 0) < LOCAL_SCHEMA_VERSION) {
-    await db.runAsync(
-      'INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)',
-      LOCAL_SCHEMA_VERSION,
-      new Date().toISOString(),
+export async function initializeDatabase(db: SQLiteDatabase) {
+  await db.execAsync('PRAGMA journal_mode = WAL;');
+  await db.execAsync('PRAGMA foreign_keys = ON;');
+  await ensureMigrationTable(db);
+
+  let current = await currentSchemaVersion(db);
+
+  for (const migration of LOCAL_MIGRATIONS) {
+    if (migration.version <= current) continue;
+
+    await db.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.execAsync(migration.sql);
+      await transaction.runAsync(
+        'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
+        migration.version,
+        new Date().toISOString(),
+      );
+    });
+
+    current = migration.version;
+  }
+
+  if (current !== LOCAL_SCHEMA_VERSION) {
+    throw new Error(
+      `Esquema SQLite inesperado: ${current}. Esperado: ${LOCAL_SCHEMA_VERSION}.`,
     );
   }
 }

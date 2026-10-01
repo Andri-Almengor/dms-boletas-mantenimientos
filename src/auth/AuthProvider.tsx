@@ -2,6 +2,7 @@ import {
   actionRequest,
   isAuthenticationError,
 } from '@/api/actionClient';
+import { buildLocalDataScope } from '@/auth/dataScope';
 import {
   clearStoredSession,
   DmsUser,
@@ -33,6 +34,7 @@ type AuthContextValue = {
   sessionToken: string;
   user: DmsUser | null;
   permissions: string[];
+  dataScope: string;
   loading: boolean;
   login: (username: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
@@ -110,8 +112,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       } catch (error) {
         if (!active) return;
 
-        // Igual que la web: una caída de red/backend NO elimina la sesión local.
-        // Solo una respuesta de autenticación autoritativa la invalida.
         if (isAuthenticationError(error)) {
           await clearSession();
         }
@@ -145,8 +145,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       if (token) await actionRequest('auth.logout', {}, token);
     } catch {
-      // Cerrar sesión es una decisión explícita del usuario.
-      // Aunque no haya conexión, el dispositivo debe borrar la sesión local.
+      // Aunque no haya conexión, el usuario puede cerrar la sesión del dispositivo.
     } finally {
       await clearSession();
     }
@@ -159,17 +158,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return { ...data, permissions: nextPermissions };
   }
 
+  const dataScope = useMemo(
+    () => buildLocalDataScope(user, permissions),
+    [user, permissions],
+  );
+
   const value = useMemo<AuthContextValue>(() => ({
     sessionToken,
     user,
     permissions,
+    dataScope,
     loading,
     login,
     logout,
     refreshMe,
     clearSession,
     hasPermission: (code) => effectivePermission(permissions, code),
-  }), [sessionToken, user, permissions, loading]);
+  }), [sessionToken, user, permissions, dataScope, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

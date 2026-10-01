@@ -8,42 +8,61 @@ Aplicación móvil local-first para complementar **DMS Boletas** en Android/iOS,
 
 ### Etapa 1 — Fundación móvil ✅
 
-Incluye:
+- Expo SDK 57 + React Native + TypeScript estricto.
+- Expo Router.
+- SQLite con WAL y migraciones versionadas.
+- Sesión protegida con `expo-secure-store`.
+- Contrato `POST /api/action` del backend existente.
+- `auth.login`, `auth.me`, logout y cambio obligatorio de contraseña.
+- Tokens visuales portados desde DMS Boletas.
+- Política central `America/Costa_Rica`: automática 07:00–17:00; manual 24 horas.
 
-- Expo SDK 57 + React Native 0.86.
-- Expo Router + TypeScript estricto.
-- SQLite inicial con WAL y migraciones versionadas.
-- Sesión local protegida con `expo-secure-store`.
-- Contrato API compatible con `POST /api/action`.
-- Login, `auth.me`, logout y cambio obligatorio de contraseña reutilizando las rutas existentes.
-- Tokens visuales portados desde `dms-boletas/src/styles/tokens.css`.
-- Política horaria central `America/Costa_Rica`:
-  - automática: `07:00 <= hora < 17:00`;
-  - manual: 24 horas.
-- Sin reintentos automáticos de escrituras ambiguas.
+### Etapa 2 — Persistencia operacional local ✅
 
-En esta etapa **todavía no se registran BackgroundTasks ni se ejecuta sincronización automática**. Eso evita activar un flujo incompleto antes de contar con outbox, reconciliación e idempotencia.
+- Esquema SQLite v2 para:
+  - mantenimientos;
+  - dispositivos;
+  - evidencias;
+  - archivos locales;
+  - clientes/catálogos y recursos auxiliares;
+  - estado de sincronización;
+  - outbox persistente;
+  - conflictos.
+- Aislamiento de datos por usuario **y huella de permisos**.
+- IDs locales estables compatibles con los IDs generados por cliente que ya acepta el backend.
+- Escritura local + outbox en una misma transacción SQLite.
+- Dependencias de cola:
+  - dispositivo → creación del mantenimiento;
+  - evidencia → creación del dispositivo.
+- Coalescencia de operaciones todavía pendientes para evitar escrituras redundantes.
+- Recuperación de operaciones que quedaron `IN_FLIGHT` si Android mata la aplicación.
+- Las evidencias guardan URI/metadatos del archivo; no se almacenan fotos Base64 en SQLite.
+- Repositorio genérico para catálogos sincronizables reutilizando los recursos del backend.
+- Persistencia del descriptor `cursor / generation / schemaVersion / cacheScope`.
+- Pruebas de regresión estructurales del esquema y del aislamiento por scope.
+
+En estas etapas **todavía no se registra BackgroundTask ni se ejecuta sincronización automática**. El motor se activa después de tener reconciliación y exclusión mutua completas.
 
 ## Próximas etapas
 
-1. **Fundación móvil** — proyecto, SQLite base, sesión, API y política horaria.
-2. **Persistencia operativa local** — esquema SQLite de mantenimientos, dispositivos, evidencias, catálogos, estado sync y outbox.
-3. **SyncCoordinator** — PULL → reconciliación → PUSH → PULL final, mutex, cursores/generation y botón manual 24/7.
+1. **Fundación móvil** ✅
+2. **Persistencia operativa local** ✅
+3. **SyncCoordinator** — PULL → reconciliación → PUSH → PULL final, mutex, cursores/generation, snapshot y botón manual 24/7.
 4. **Mantenimientos offline** — listado, detalle, filtros y snapshots locales respetando permisos/visibilidad existentes.
 5. **Edición offline** — dispositivos, proyecto/checklists, observaciones y relaciones configurables.
 6. **Evidencias** — cámara/galería, archivos locales, ANTES/DESPUÉS, cola de upload e idempotencia.
 7. **Firmas y finalización** — firma, `FINALIZE_PENDING`, dependencias y conflictos.
-8. **Triggers automáticos** — foreground, red, cambio local y `expo-background-task`, siempre limitados a 07:00–17:00.
+8. **Triggers automáticos** — foreground, red, cambio local y `expo-background-task`, limitados a 07:00–17:00.
 9. **Hardening** — concurrencia, recuperación, pruebas de regresión, rendimiento y consistencia con web.
-10. **APK / distribución** — EAS Build, perfiles de desarrollo/producción y validación en Android real.
+10. **APK / distribución** — EAS Build y validación en Android real.
 
 ## Configuración
-
-Requiere Node.js compatible con Expo SDK 57.
 
 ```bash
 cp .env.example .env
 npm install
+npm test
+npm run typecheck
 npm run start
 ```
 
@@ -53,7 +72,7 @@ Para Android con Expo Go:
 npm run android
 ```
 
-La URL del backend puede configurarse con:
+La URL pública del backend se configura con:
 
 ```env
 EXPO_PUBLIC_API_URL=https://dms-boletas-mfqj.onrender.com/api/action
