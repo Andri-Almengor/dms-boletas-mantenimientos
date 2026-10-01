@@ -153,11 +153,13 @@ function questionLabelMap(device: RecordLike, answers: Record<string, unknown>) 
     : Array.isArray(answers.__preguntas)
       ? answers.__preguntas as RecordLike[]
       : [];
-  return new Map(
-    details.map((question) => [
-      text(question.key || question.Clave),
-      text(question.label || question.Pregunta || question.key || question.Clave),
-    ]).filter(([key]) => Boolean(key)),
+  return new Map<string, string>(
+    details
+      .map((question): [string, string] => [
+        text(question.key || question.Clave),
+        text(question.label || question.Pregunta || question.key || question.Clave),
+      ])
+      .filter(([key]) => Boolean(key)),
   );
 }
 
@@ -194,18 +196,19 @@ export function projectEvidenceTargets(
     if (!relation.enabled || !relation.items.length) continue;
 
     relation.items.forEach((item, index) => {
-      const localId = text(item.localId || item.id);
+      const relationItem = item as unknown as RecordLike;
+      const localId = text(relationItem.localId || relationItem.id);
       if (!localId) return;
       const itemCategory = text(
-        item.categoria
-          || item.TipoDispositivo
+        relationItem.categoria
+          || relationItem.TipoDispositivo
           || relation.relatedTypeName,
       ) || 'Componente';
       const itemName = text(
-        item.nombre
-          || item.NombreDispositivo
-          || item.modelo
-          || item.Modelo,
+        relationItem.nombre
+          || relationItem.NombreDispositivo
+          || relationItem.modelo
+          || relationItem.Modelo,
       ) || `${itemCategory} ${index + 1}`;
       const relationLabel = labels.get(key);
 
@@ -215,8 +218,8 @@ export function projectEvidenceTargets(
         relationKey: key,
         componentLocalId: localId,
         componentTypeId: text(
-          item.tipoDispositivoId
-            || item.TipoDispositivoID
+          relationItem.tipoDispositivoId
+            || relationItem.TipoDispositivoID
             || relation.relatedTypeId,
         ),
         componentName: itemName,

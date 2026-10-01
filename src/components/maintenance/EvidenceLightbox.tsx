@@ -28,7 +28,7 @@ function VideoContent({ uri }: { uri: string }) {
       style={styles.video}
       nativeControls
       contentFit="contain"
-      allowsFullscreen
+      fullscreenOptions={{ enable: true }}
     />
   );
 }
