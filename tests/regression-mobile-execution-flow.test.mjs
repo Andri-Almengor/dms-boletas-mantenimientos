@@ -29,8 +29,8 @@ test('firma y finalización no existen en la superficie móvil', () => {
 test('editor sigue el flujo web: ubicación, identificación, grupo, checklist, observaciones y evidencia', () => {
   const identification = editor.indexOf('Identificación y ubicación');
   const team = editor.indexOf('Fecha y grupo de trabajo');
-  const checklist = editor.indexOf('Checklist');
-  const observations = editor.indexOf('Observaciones');
+  const checklist = editor.indexOf('<Section title="Checklist">');
+  const observations = editor.indexOf('<Section title="Observaciones">');
   const evidence = editor.indexOf('<MaintenanceEvidenceDraftSection');
   assert.ok(identification >= 0);
   assert.ok(team > identification);
