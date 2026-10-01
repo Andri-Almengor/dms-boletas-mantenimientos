@@ -166,7 +166,7 @@ export function MaintenanceEvidencePickerControls({
           onPress={takePhoto}
         />
         <PickerButton
-          label="Galería"
+          label="Foto galería"
           icon="▧"
           disabled={disabled}
           onPress={pickEditablePhoto}
