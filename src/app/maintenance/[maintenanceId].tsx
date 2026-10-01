@@ -165,7 +165,6 @@ export default function MaintenanceDetailScreen() {
     refreshStatus,
     syncing,
     lastSuccessAt,
-    message: syncMessage,
   } = useSync();
 
   const [detail, setDetail] = useState<LocalMaintenanceDetail | null>(null);
@@ -493,7 +492,8 @@ export default function MaintenanceDetailScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={styles.locationAddText}>＋</Text>
+                <Text style={styles.locationAddGlyph}>＋</Text>
+                <Text style={styles.locationAddText}>Dispositivo</Text>
               </Pressable>
             ) : null}
           </View>
@@ -567,7 +567,7 @@ export default function MaintenanceDetailScreen() {
                       ]}
                     >
                       <Text style={styles.quickIconPrimary}>⌖＋</Text>
-                      <Text style={styles.quickTextPrimary}>Agregar ubicación</Text>
+                      <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
                     </Pressable>
                   ) : null}
 
@@ -581,7 +581,7 @@ export default function MaintenanceDetailScreen() {
                     >
                       <Text style={styles.quickIcon}>＋</Text>
                       <Text style={styles.quickText}>
-                        Agregar dispositivo
+                        + Dispositivo
                       </Text>
                     </Pressable>
                   ) : null}
@@ -722,11 +722,6 @@ export default function MaintenanceDetailScreen() {
               </View>
             ) : null}
 
-            {syncing && syncMessage ? (
-              <Text style={styles.syncProgressText} numberOfLines={1}>
-                {syncMessage}
-              </Text>
-            ) : null}
           </View>
         )}
       />
@@ -1101,18 +1096,25 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   locationAddButton: {
-    width: sizing.touchTargetMin,
-    height: sizing.touchTargetMin,
-    borderRadius: 22,
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 999,
     backgroundColor: colors.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+  },
+  locationAddGlyph: {
+    color: '#ffffff',
+    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 20,
   },
   locationAddText: {
     color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 23,
-    lineHeight: 25,
+    fontWeight: '900',
+    fontSize: 10,
   },
   emptyDevices: {
     marginHorizontal: spacing.md,
@@ -1133,12 +1135,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 11,
     lineHeight: 17,
-  },
-  syncProgressText: {
-    marginHorizontal: spacing.md,
-    color: colors.muted,
-    fontSize: 10,
-    textAlign: 'center',
   },
   pressed: {
     opacity: 0.76,
