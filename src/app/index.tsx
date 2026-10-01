@@ -12,6 +12,7 @@ import {
   listLocalMaintenanceClients,
   listLocalMaintenancesPage,
 } from '@/db/maintenanceRepository';
+import { canCreateMaintenance } from '@/features/maintenance/maintenancePermissions';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import { Redirect, useRouter } from 'expo-router';
@@ -60,6 +61,7 @@ export default function MaintenanceListScreen() {
     user,
     loading: authLoading,
     dataScope,
+    permissions,
     logout,
   } = useAuth();
   const {
@@ -179,15 +181,28 @@ export default function MaintenanceListScreen() {
                   La lista y los filtros trabajan directamente sobre SQLite.
                 </Text>
               </View>
-              <Pressable
-                onPress={logout}
-                style={({ pressed }) => [
-                  styles.logoutButton,
-                  pressed && styles.logoutPressed,
-                ]}
-              >
-                <Text style={styles.logoutText}>Salir</Text>
-              </Pressable>
+              <View style={styles.headingActions}>
+                {canCreateMaintenance(permissions) ? (
+                  <Pressable
+                    onPress={() => router.push('/maintenance/new')}
+                    style={({ pressed }) => [
+                      styles.createButton,
+                      pressed && styles.logoutPressed,
+                    ]}
+                  >
+                    <Text style={styles.createButtonText}>+ Nuevo</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={logout}
+                  style={({ pressed }) => [
+                    styles.logoutButton,
+                    pressed && styles.logoutPressed,
+                  ]}
+                >
+                  <Text style={styles.logoutText}>Salir</Text>
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.syncWrap}>
@@ -365,6 +380,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxs,
   },
   subtitle: { color: colors.muted, lineHeight: 19, marginTop: spacing.xxs, fontSize: 13 },
+  headingActions: { alignItems: 'flex-end', gap: spacing.xs },
+  createButton: {
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createButtonText: { color: '#fff', fontWeight: '900', fontSize: 12 },
   logoutButton: {
     minHeight: sizing.touchTargetMin,
     paddingHorizontal: spacing.sm,

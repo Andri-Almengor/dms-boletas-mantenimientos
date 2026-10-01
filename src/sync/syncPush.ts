@@ -4,7 +4,10 @@ import {
   isAuthenticationError,
 } from '@/api/actionClient';
 import { createSyncConflict } from '@/db/conflictRepository';
-import { upsertRemoteDevice } from '@/db/deviceRepository';
+import {
+  markDeviceDeleteConfirmed,
+  upsertRemoteDevice,
+} from '@/db/deviceRepository';
 import { upsertRemoteEvidence } from '@/db/evidenceRepository';
 import { getLocalFile } from '@/db/localFileRepository';
 import { upsertRemoteMaintenance } from '@/db/maintenanceRepository';
@@ -105,6 +108,18 @@ async function completeSuccess(
       operation.operation_id,
     );
     if (newerLocalWork) return;
+
+    if (
+      operation.operation_kind === 'DELETE'
+      && operation.entity_type === 'maintenanceDevice'
+    ) {
+      await markDeviceDeleteConfirmed(
+        transaction,
+        scopeKey,
+        operation.entity_id,
+      );
+      return;
+    }
 
     const record = resultRecord(operation, result);
     if (operation.entity_type === 'maintenance') {

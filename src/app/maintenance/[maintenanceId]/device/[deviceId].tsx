@@ -3,6 +3,11 @@ import {
   readLocalDeviceDetail,
 } from '@/db/maintenanceDetailRepository';
 import { useAuth } from '@/auth/AuthProvider';
+import { getLocalMaintenance } from '@/db/maintenanceRepository';
+import {
+  canEditMaintenance,
+  maintenanceReadOnly,
+} from '@/features/maintenance/maintenancePermissions';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import {
   Redirect,
@@ -54,22 +59,30 @@ export default function DeviceDetailScreen() {
     user,
     loading: authLoading,
     dataScope,
+    permissions,
   } = useAuth();
   const [detail, setDetail] = useState<LocalDeviceDetail | null>(null);
+  const [maintenance, setMaintenance] = useState<Record<string, unknown> | null>(null);
   const [previewUri, setPreviewUri] = useState('');
 
   const load = useCallback(async () => {
     if (!dataScope || !maintenanceId || !deviceId) return;
-    setDetail(await readLocalDeviceDetail(
-      db,
-      dataScope,
-      maintenanceId,
-      deviceId,
-    ));
+    const [deviceDetail, maintenanceRow] = await Promise.all([
+      readLocalDeviceDetail(
+        db,
+        dataScope,
+        maintenanceId,
+        deviceId,
+      ),
+      getLocalMaintenance(db, dataScope, maintenanceId),
+    ]);
+    setDetail(deviceDetail);
+    setMaintenance(maintenanceRow);
   }, [db, dataScope, maintenanceId, deviceId]);
 
   useEffect(() => {
     setDetail(null);
+    setMaintenance(null);
     setPreviewUri('');
   }, [dataScope, maintenanceId, deviceId]);
 
@@ -102,6 +115,8 @@ export default function DeviceDetailScreen() {
 
   const device = detail.device;
   const title = value(device, ['NombreDispositivo', 'nombre'], 'Dispositivo');
+  const canEdit = canEditMaintenance(permissions);
+  const readOnly = maintenanceReadOnly(permissions, maintenance?.Estado);
 
   function navigate(targetId: string) {
     if (!targetId) return;
@@ -132,6 +147,24 @@ export default function DeviceDetailScreen() {
             {value(device, ['UbicacionEquipoNombre', 'Zona', 'zona'], 'Sin ubicación')}
           </Text>
         </View>
+
+        {canEdit && maintenance ? (
+          <Pressable
+            disabled={readOnly}
+            onPress={() => router.push({
+              pathname: '/maintenance/[maintenanceId]/device/[deviceId]/edit',
+              params: { maintenanceId, deviceId },
+            })}
+            style={[
+              styles.editButton,
+              readOnly && styles.navDisabled,
+            ]}
+          >
+            <Text style={styles.editButtonText}>
+              {readOnly ? 'Finalizado · solo lectura' : 'Editar dispositivo'}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.grid}>
           {[
@@ -297,6 +330,14 @@ const styles = StyleSheet.create({
   position: { color: colors.muted, fontWeight: '800', fontSize: 11 },
   title: { color: colors.text, fontWeight: '900', fontSize: 24 },
   zone: { color: colors.muted, lineHeight: 19 },
+  editButton: {
+    minHeight: sizing.buttonHeight,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButtonText: { color: '#fff', fontWeight: '900' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   infoCard: {
     minWidth: '47%',

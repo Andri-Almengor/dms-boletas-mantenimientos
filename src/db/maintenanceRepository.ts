@@ -151,15 +151,38 @@ export async function saveLocalMaintenance(
 
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const existing = savedId
-      ? await transaction.getFirstAsync<{ payload_json: string; sync_status: string }>(
-        `SELECT payload_json, sync_status FROM local_maintenances
-         WHERE scope_key = ? AND maintenance_id = ?`,
-        scopeKey,
-        savedId,
-      )
+      ? await transaction.getFirstAsync<{
+          payload_json: string;
+          sync_status: string;
+          maintenance_type: string;
+        }>(
+          `SELECT payload_json, sync_status, maintenance_type
+           FROM local_maintenances
+           WHERE scope_key = ? AND maintenance_id = ?`,
+          scopeKey,
+          savedId,
+        )
       : null;
 
     if (!savedId) savedId = createLocalId('mantenimiento');
+
+    const requestedType = normalizeType(
+      pick(patch, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType']),
+    );
+    if (existing && normalizeType(existing.maintenance_type) !== requestedType) {
+      const devices = await transaction.getFirstAsync<{ total: number }>(
+        `SELECT COUNT(*) AS total
+         FROM local_maintenance_devices
+         WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0`,
+        scopeKey,
+        savedId,
+      );
+      if (Number(devices?.total || 0) > 0) {
+        throw new Error(
+          'No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.',
+        );
+      }
+    }
 
     const existingPayload = existing
       ? parseJsonObject<MaintenanceRecord>(existing.payload_json)
@@ -181,7 +204,9 @@ export async function saveLocalMaintenance(
       'maintenance',
       savedId,
     );
-    const localOnly = !existing || existing.sync_status === 'LOCAL_ONLY' || Boolean(pendingCreate);
+    const localOnly = !existing
+      || existing.sync_status === 'LOCAL_ONLY'
+      || Boolean(pendingCreate);
     const route = localOnly ? 'maintenance.create' : 'maintenance.update';
 
     await upsertMaintenanceRow(
@@ -190,6 +215,20 @@ export async function saveLocalMaintenance(
       merged,
       localOnly ? 'LOCAL_ONLY' : 'PENDING',
     );
+
+    if (!existing) {
+      await transaction.runAsync(
+        `INSERT INTO local_maintenance_detail_state (
+           scope_key, maintenance_id, complete, downloaded_at,
+           server_updated_at, device_count, evidence_count
+         ) VALUES (?, ?, 1, ?, '', 0, 0)
+         ON CONFLICT(scope_key, maintenance_id) DO UPDATE SET
+           complete = 1, downloaded_at = excluded.downloaded_at`,
+        scopeKey,
+        savedId,
+        new Date().toISOString(),
+      );
+    }
 
     const queued = await enqueueOutboxOperationTx(transaction, {
       scopeKey,

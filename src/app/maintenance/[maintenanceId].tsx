@@ -13,6 +13,10 @@ import {
   normalizeMaintenanceStatus,
 } from '@/features/maintenance/maintenanceListDomain';
 import { useAuth } from '@/auth/AuthProvider';
+import {
+  canEditMaintenance,
+  maintenanceReadOnly,
+} from '@/features/maintenance/maintenancePermissions';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import {
@@ -59,6 +63,7 @@ export default function MaintenanceDetailScreen() {
     user,
     loading: authLoading,
     dataScope,
+    permissions,
   } = useAuth();
   const {
     refreshMaintenanceDetail,
@@ -155,6 +160,8 @@ export default function MaintenanceDetailScreen() {
 
   const status = normalizeMaintenanceStatus(maintenance.Estado);
   const expected = expectedDeviceTotal(maintenance);
+  const canEdit = canEditMaintenance(permissions);
+  const readOnly = maintenanceReadOnly(permissions, maintenance.Estado);
 
   return (
     <>
@@ -198,6 +205,39 @@ export default function MaintenanceDetailScreen() {
                 {String(maintenance.DescripcionGeneral || 'Sin descripción general')}
               </Text>
             </View>
+
+            {canEdit ? (
+              <View style={styles.actions}>
+                <Pressable
+                  disabled={readOnly}
+                  onPress={() => router.push({
+                    pathname: '/maintenance/[maintenanceId]/edit',
+                    params: { maintenanceId },
+                  })}
+                  style={[
+                    styles.actionButton,
+                    readOnly && styles.disabled,
+                  ]}
+                >
+                  <Text style={styles.actionButtonText}>
+                    {readOnly ? 'Finalizado · solo lectura' : 'Editar mantenimiento'}
+                  </Text>
+                </Pressable>
+                {!readOnly && detail.detailComplete ? (
+                  <Pressable
+                    onPress={() => router.push({
+                      pathname: '/maintenance/[maintenanceId]/device/new',
+                      params: { maintenanceId },
+                    })}
+                    style={[styles.actionButton, styles.actionButtonPrimary]}
+                  >
+                    <Text style={[styles.actionButtonText, styles.actionButtonPrimaryText]}>
+                      + Agregar dispositivo
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
 
             <View style={styles.summaryGrid}>
               <View style={styles.summaryCard}>
@@ -312,6 +352,29 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontWeight: '900', fontSize: 23, lineHeight: 28 },
   description: { color: colors.muted, lineHeight: 20 },
+  actions: {
+    marginHorizontal: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  actionButton: {
+    flexGrow: 1,
+    minHeight: sizing.buttonHeight,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
+    backgroundColor: colors.surfaceCard,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  actionButtonText: { color: colors.text, fontWeight: '900', fontSize: 12 },
+  actionButtonPrimaryText: { color: '#fff' },
   summaryGrid: {
     marginHorizontal: spacing.md,
     flexDirection: 'row',
