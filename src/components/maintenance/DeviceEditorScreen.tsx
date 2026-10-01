@@ -829,8 +829,25 @@ export function DeviceEditorScreen({
           <View style={styles.stageNotice}>
             <Text style={styles.stageNoticeTitle}>Evidencias</Text>
             <Text style={styles.stageNoticeText}>
-              Las evidencias existentes se conservan. Cámara, galería y edición de ANTES/DESPUÉS se integran en la Etapa 6.
+              {mode === 'create'
+                ? 'Guarde primero el dispositivo. Después podrá tomar fotos, grabar videos o seleccionar evidencias desde su detalle, incluso sin conexión.'
+                : 'Las evidencias se administran desde el detalle del dispositivo y siempre se guardan primero en el almacenamiento local.'}
             </Text>
+            {mode === 'edit' && form.id ? (
+              <Pressable
+                disabled={saving}
+                onPress={() => router.push({
+                  pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
+                  params: {
+                    maintenanceId,
+                    deviceId: form.id,
+                  },
+                })}
+                style={styles.evidenceButton}
+              >
+                <Text style={styles.evidenceButtonText}>Gestionar evidencias</Text>
+              </Pressable>
+            ) : null}
           </View>
         </ScrollView>
 
@@ -1084,6 +1101,20 @@ const styles = StyleSheet.create({
   },
   stageNoticeTitle: { color: colors.text, fontWeight: '900' },
   stageNoticeText: { color: colors.muted, fontSize: 11, lineHeight: 17 },
+  evidenceButton: {
+    minHeight: sizing.touchTargetMin,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evidenceButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+    fontSize: 11,
+  },
   footer: {
     position: 'absolute',
     left: 0,

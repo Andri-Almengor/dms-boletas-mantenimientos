@@ -68,3 +68,45 @@ export async function getLocalFile(
     fileId,
   );
 }
+
+
+export async function getLocalFileByOwner(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  ownerType: string,
+  ownerId: string,
+) {
+  return db.getFirstAsync<{
+    file_id: string;
+    local_uri: string;
+    file_name: string;
+    mime_type: string;
+    file_size: number;
+    sha256: string;
+  }>(
+    `SELECT file_id, local_uri, file_name, mime_type, file_size, sha256
+     FROM local_files
+     WHERE scope_key = ? AND owner_type = ? AND owner_id = ?
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    scopeKey,
+    ownerType,
+    ownerId,
+  );
+}
+
+export async function deleteLocalFileRecord(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  fileId: string,
+) {
+  const existing = await getLocalFile(db, scopeKey, fileId);
+  if (!existing) return null;
+  await db.runAsync(
+    `DELETE FROM local_files
+     WHERE scope_key = ? AND file_id = ?`,
+    scopeKey,
+    fileId,
+  );
+  return existing;
+}

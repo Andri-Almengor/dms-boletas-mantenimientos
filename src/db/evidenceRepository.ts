@@ -3,7 +3,11 @@ import { mergeJsonPayload, parseJsonObject, stringifyJson } from '@/db/json';
 import {
   enqueueOutboxOperationTx,
   findPendingEntityCreateOperation,
+  listUnresolvedEntityOperations,
 } from '@/db/outboxRepository';
+import {
+  deleteLocalFileRecord,
+} from '@/db/localFileRepository';
 import {
   maintenanceEvidenceSyncBase,
   withSyncBase,
@@ -22,6 +26,40 @@ function pick(record: EvidenceRecord, keys: string[], fallback: unknown = '') {
 
 function idOf(record: EvidenceRecord) {
   return String(pick(record, ['FotoDispositivoID', 'imageId', 'id'], '')).trim();
+}
+
+async function refreshDetailCountsTx(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+) {
+  const counts = await db.getFirstAsync<{ device_count: number; evidence_count: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM local_maintenance_devices
+        WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0) AS device_count,
+       (SELECT COUNT(*) FROM local_maintenance_evidence
+        WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0) AS evidence_count`,
+    scopeKey,
+    maintenanceId,
+    scopeKey,
+    maintenanceId,
+  );
+
+  await db.runAsync(
+    `INSERT INTO local_maintenance_detail_state (
+       scope_key, maintenance_id, complete, downloaded_at,
+       server_updated_at, device_count, evidence_count
+     ) VALUES (?, ?, 1, ?, '', ?, ?)
+     ON CONFLICT(scope_key, maintenance_id) DO UPDATE SET
+       complete = 1,
+       device_count = excluded.device_count,
+       evidence_count = excluded.evidence_count`,
+    scopeKey,
+    maintenanceId,
+    new Date().toISOString(),
+    Number(counts?.device_count || 0),
+    Number(counts?.evidence_count || 0),
+  );
 }
 
 async function upsertEvidenceRow(
@@ -133,6 +171,50 @@ export async function upsertRemoteEvidence(
   );
 }
 
+export async function getLocalEvidence(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  evidenceId: string,
+) {
+  const row = await db.getFirstAsync<{
+    payload_json: string;
+    sync_status: string;
+    local_file_id: string;
+    tombstone: number;
+  }>(
+    `SELECT payload_json, sync_status, local_file_id, tombstone
+     FROM local_maintenance_evidence
+     WHERE scope_key = ? AND evidence_id = ?`,
+    scopeKey,
+    evidenceId,
+  );
+  return row
+    ? {
+        record: parseJsonObject<EvidenceRecord>(row.payload_json),
+        syncStatus: row.sync_status,
+        localFileId: row.local_file_id,
+        tombstone: Boolean(row.tombstone),
+      }
+    : null;
+}
+
+export async function attachLocalFileToEvidence(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  evidenceId: string,
+  localFileId: string,
+) {
+  await db.runAsync(
+    `UPDATE local_maintenance_evidence
+     SET local_file_id = ?, local_updated_at = ?
+     WHERE scope_key = ? AND evidence_id = ? AND tombstone = 0`,
+    localFileId,
+    new Date().toISOString(),
+    scopeKey,
+    evidenceId,
+  );
+}
+
 export async function saveLocalEvidence(
   db: SQLiteDatabase,
   scopeKey: string,
@@ -148,13 +230,17 @@ export async function saveLocalEvidence(
 
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const existing = evidenceId
-      ? await transaction.getFirstAsync<{ payload_json: string; sync_status: string; local_file_id: string }>(
-        `SELECT payload_json, sync_status, local_file_id
-         FROM local_maintenance_evidence
-         WHERE scope_key = ? AND evidence_id = ?`,
-        scopeKey,
-        evidenceId,
-      )
+      ? await transaction.getFirstAsync<{
+          payload_json: string;
+          sync_status: string;
+          local_file_id: string;
+        }>(
+          `SELECT payload_json, sync_status, local_file_id
+           FROM local_maintenance_evidence
+           WHERE scope_key = ? AND evidence_id = ?`,
+          scopeKey,
+          evidenceId,
+        )
       : null;
 
     if (!evidenceId) evidenceId = createLocalId('evidencia');
@@ -180,13 +266,18 @@ export async function saveLocalEvidence(
       );
     }
 
-    const pendingCreate = await findPendingEntityCreateOperation(
+    const unresolved = await listUnresolvedEntityOperations(
       transaction,
       scopeKey,
       'maintenanceEvidence',
       evidenceId,
     );
-    const localOnly = !existing || existing.sync_status === 'LOCAL_ONLY' || Boolean(pendingCreate);
+    const mediaUpload = [...unresolved]
+      .reverse()
+      .find((operation) => operation.operation_kind === 'MEDIA_UPLOAD');
+    const localOnly = !existing
+      || existing.sync_status === 'LOCAL_ONLY'
+      || Boolean(mediaUpload);
     const localFileId = String(input.localFileId || existing?.local_file_id || '');
 
     await upsertEvidenceRow(
@@ -204,22 +295,203 @@ export async function saveLocalEvidence(
       input.deviceId,
     );
 
-    const queued = await enqueueOutboxOperationTx(transaction, {
-      scopeKey,
-      operationKind: localOnly ? 'MEDIA_UPLOAD' : 'UPDATE',
-      route: localOnly ? 'maintenance.images.upload' : 'maintenance.images.update',
-      entityType: 'maintenanceEvidence',
-      entityId: evidenceId,
-      aggregateId: input.maintenanceId,
-      localFileId,
-      payload: merged,
-      priority: 70,
-      dependsOnOperationId: deviceCreate?.operation_id || '',
-    });
-    operationId = queued.operationId;
+    if (localOnly && mediaUpload?.status === 'IN_FLIGHT') {
+      const queued = await enqueueOutboxOperationTx(transaction, {
+        scopeKey,
+        operationKind: 'UPDATE',
+        route: 'maintenance.images.update',
+        entityType: 'maintenanceEvidence',
+        entityId: evidenceId,
+        aggregateId: input.maintenanceId,
+        payload: merged,
+        priority: 75,
+        dependsOnOperationId: mediaUpload.operation_id,
+      });
+      operationId = queued.operationId;
+    } else {
+      const queued = await enqueueOutboxOperationTx(transaction, {
+        scopeKey,
+        operationKind: localOnly ? 'MEDIA_UPLOAD' : 'UPDATE',
+        route: localOnly ? 'maintenance.images.upload' : 'maintenance.images.update',
+        entityType: 'maintenanceEvidence',
+        entityId: evidenceId,
+        aggregateId: input.maintenanceId,
+        localFileId: localOnly ? localFileId : '',
+        payload: merged,
+        priority: localOnly ? 70 : 75,
+        dependsOnOperationId: localOnly
+          ? deviceCreate?.operation_id || ''
+          : '',
+      });
+      operationId = queued.operationId;
+    }
+
+    await refreshDetailCountsTx(transaction, scopeKey, input.maintenanceId);
   });
 
   return { evidenceId, operationId };
+}
+
+export async function deleteLocalEvidence(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  input: {
+    maintenanceId: string;
+    deviceId: string;
+    evidenceId: string;
+  },
+) {
+  let operationId = '';
+  let discardLocalUri = '';
+
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const existing = await transaction.getFirstAsync<{
+      payload_json: string;
+      sync_status: string;
+      local_file_id: string;
+      local_uri: string;
+    }>(
+      `SELECT
+         e.payload_json,
+         e.sync_status,
+         e.local_file_id,
+         COALESCE(f.local_uri, '') AS local_uri
+       FROM local_maintenance_evidence e
+       LEFT JOIN local_files f
+         ON f.scope_key = e.scope_key AND f.file_id = e.local_file_id
+       WHERE e.scope_key = ? AND e.evidence_id = ? AND e.tombstone = 0`,
+      scopeKey,
+      input.evidenceId,
+    );
+    if (!existing) return;
+
+    const unresolved = await listUnresolvedEntityOperations(
+      transaction,
+      scopeKey,
+      'maintenanceEvidence',
+      input.evidenceId,
+    );
+    const mediaUpload = [...unresolved]
+      .reverse()
+      .find((operation) => operation.operation_kind === 'MEDIA_UPLOAD');
+    const inFlight = [...unresolved]
+      .reverse()
+      .find((operation) => operation.status === 'IN_FLIGHT');
+    const onlyLocal = existing.sync_status === 'LOCAL_ONLY'
+      && (!mediaUpload || mediaUpload.status !== 'IN_FLIGHT');
+
+    if (onlyLocal) {
+      await transaction.runAsync(
+        `DELETE FROM sync_outbox
+         WHERE scope_key = ? AND entity_type = 'maintenanceEvidence'
+           AND entity_id = ?
+           AND status <> 'SUCCEEDED'`,
+        scopeKey,
+        input.evidenceId,
+      );
+      await transaction.runAsync(
+        `DELETE FROM local_maintenance_evidence
+         WHERE scope_key = ? AND evidence_id = ?`,
+        scopeKey,
+        input.evidenceId,
+      );
+      if (existing.local_file_id) {
+        await deleteLocalFileRecord(
+          transaction,
+          scopeKey,
+          existing.local_file_id,
+        );
+      }
+      discardLocalUri = existing.local_uri;
+    } else {
+      await transaction.runAsync(
+        `DELETE FROM sync_outbox
+         WHERE scope_key = ? AND entity_type = 'maintenanceEvidence'
+           AND entity_id = ?
+           AND status IN ('PENDING','FAILED','BLOCKED','CONFLICT')
+           AND operation_kind <> 'MEDIA_UPLOAD'`,
+        scopeKey,
+        input.evidenceId,
+      );
+
+      await transaction.runAsync(
+        `UPDATE local_maintenance_evidence
+         SET tombstone = 1, sync_status = 'PENDING', local_updated_at = ?
+         WHERE scope_key = ? AND evidence_id = ?`,
+        new Date().toISOString(),
+        scopeKey,
+        input.evidenceId,
+      );
+
+      const payload = parseJsonObject<EvidenceRecord>(existing.payload_json);
+      const queued = await enqueueOutboxOperationTx(transaction, {
+        scopeKey,
+        operationKind: 'DELETE',
+        route: 'maintenance.images.delete',
+        entityType: 'maintenanceEvidence',
+        entityId: input.evidenceId,
+        aggregateId: input.maintenanceId,
+        payload: {
+          maintenanceId: input.maintenanceId,
+          MantenimientoID: input.maintenanceId,
+          deviceId: input.deviceId,
+          DispositivoMantenimientoRef: input.deviceId,
+          imageId: input.evidenceId,
+          FotoDispositivoID: input.evidenceId,
+          __syncBase: payload.__syncBase,
+        },
+        priority: 80,
+        dependsOnOperationId: inFlight?.operation_id || '',
+      });
+      operationId = queued.operationId;
+    }
+
+    await refreshDetailCountsTx(transaction, scopeKey, input.maintenanceId);
+  });
+
+  return {
+    evidenceId: input.evidenceId,
+    operationId,
+    discardLocalUri,
+  };
+}
+
+export async function markEvidenceDeleteConfirmed(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  evidenceId: string,
+) {
+  const row = await db.getFirstAsync<{
+    local_file_id: string;
+    local_uri: string;
+  }>(
+    `SELECT
+       e.local_file_id,
+       COALESCE(f.local_uri, '') AS local_uri
+     FROM local_maintenance_evidence e
+     LEFT JOIN local_files f
+       ON f.scope_key = e.scope_key AND f.file_id = e.local_file_id
+     WHERE e.scope_key = ? AND e.evidence_id = ?`,
+    scopeKey,
+    evidenceId,
+  );
+
+  await db.runAsync(
+    `UPDATE local_maintenance_evidence
+     SET tombstone = 1, sync_status = 'SYNCED', last_synced_at = ?,
+         local_updated_at = ?
+     WHERE scope_key = ? AND evidence_id = ?`,
+    new Date().toISOString(),
+    new Date().toISOString(),
+    scopeKey,
+    evidenceId,
+  );
+
+  if (row?.local_file_id) {
+    await deleteLocalFileRecord(db, scopeKey, row.local_file_id);
+  }
+
+  return row?.local_uri || '';
 }
 
 export async function listLocalEvidence(
@@ -227,12 +499,32 @@ export async function listLocalEvidence(
   scopeKey: string,
   deviceId: string,
 ) {
-  const rows = await db.getAllAsync<{ payload_json: string }>(
-    `SELECT payload_json FROM local_maintenance_evidence
-     WHERE scope_key = ? AND device_id = ? AND tombstone = 0
-     ORDER BY captured_at DESC, local_updated_at DESC`,
+  const rows = await db.getAllAsync<{
+    payload_json: string;
+    sync_status: string;
+    local_uri: string;
+    local_file_id: string;
+  }>(
+    `SELECT
+       e.payload_json,
+       e.sync_status,
+       e.local_file_id,
+       COALESCE(f.local_uri, '') AS local_uri
+     FROM local_maintenance_evidence e
+     LEFT JOIN local_files f
+       ON f.scope_key = e.scope_key AND f.file_id = e.local_file_id
+     WHERE e.scope_key = ? AND e.device_id = ? AND e.tombstone = 0
+     ORDER BY e.captured_at DESC, e.local_updated_at DESC`,
     scopeKey,
     deviceId,
   );
-  return rows.map((row) => parseJsonObject<EvidenceRecord>(row.payload_json));
+
+  return rows.map((row) => ({
+    ...parseJsonObject<EvidenceRecord>(row.payload_json),
+    __local: {
+      syncStatus: row.sync_status,
+      localUri: row.local_uri,
+      localFileId: row.local_file_id,
+    },
+  }));
 }

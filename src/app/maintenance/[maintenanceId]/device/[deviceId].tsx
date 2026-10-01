@@ -2,6 +2,7 @@ import {
   LocalDeviceDetail,
   readLocalDeviceDetail,
 } from '@/db/maintenanceDetailRepository';
+import { MaintenanceEvidenceManager } from '@/components/maintenance/MaintenanceEvidenceManager';
 import { useAuth } from '@/auth/AuthProvider';
 import { getLocalMaintenance } from '@/db/maintenanceRepository';
 import {
@@ -23,8 +24,6 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -63,7 +62,6 @@ export default function DeviceDetailScreen() {
   } = useAuth();
   const [detail, setDetail] = useState<LocalDeviceDetail | null>(null);
   const [maintenance, setMaintenance] = useState<Record<string, unknown> | null>(null);
-  const [previewUri, setPreviewUri] = useState('');
 
   const load = useCallback(async () => {
     if (!dataScope || !maintenanceId || !deviceId) return;
@@ -83,7 +81,6 @@ export default function DeviceDetailScreen() {
   useEffect(() => {
     setDetail(null);
     setMaintenance(null);
-    setPreviewUri('');
   }, [dataScope, maintenanceId, deviceId]);
 
   useEffect(() => {
@@ -191,58 +188,17 @@ export default function DeviceDetailScreen() {
           </View>
         ) : null}
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionTitle}>Evidencias</Text>
-          <Text style={styles.sectionCount}>{detail.evidence.length}</Text>
-        </View>
-
-        {detail.evidence.length ? (
-          <View style={styles.gallery}>
-            {detail.evidence.map((item) => {
-              const meta = item.__local && typeof item.__local === 'object'
-                ? item.__local as { localUri?: string }
-                : {};
-              const uri = String(meta.localUri || '');
-              return (
-                <Pressable
-                  key={evidenceId(item)}
-                  style={styles.evidenceCard}
-                  disabled={!uri}
-                  onPress={() => uri && setPreviewUri(uri)}
-                >
-                  {uri ? (
-                    <Image source={{ uri }} style={styles.image} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.imagePlaceholder}>
-                      <Text style={styles.placeholderIcon}>▧</Text>
-                      <Text style={styles.placeholderText}>Imagen en servidor</Text>
-                    </View>
-                  )}
-                  <View style={styles.evidenceBody}>
-                    <Text style={styles.evidenceType}>
-                      {value(item, ['Tipo', 'tipo'], 'Evidencia')}
-                    </Text>
-                    <Text style={styles.evidenceNote} numberOfLines={2}>
-                      {value(item, ['Nota', 'nota'], 'Sin nota')}
-                    </Text>
-                    {!uri ? (
-                      <Text style={styles.remoteHint}>
-                        La descarga segura de medios se completa en la etapa de evidencias.
-                      </Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.noEvidence}>
-            <Text style={styles.noEvidenceTitle}>Sin evidencias</Text>
-            <Text style={styles.noEvidenceText}>
-              No hay imágenes guardadas para este dispositivo.
-            </Text>
-          </View>
-        )}
+        <MaintenanceEvidenceManager
+          maintenanceId={maintenanceId}
+          deviceId={deviceId}
+          device={device}
+          maintenanceType={
+            maintenance?.TipoMantenimiento
+              || device.TipoMantenimiento
+              || 'MANTENIMIENTO'
+          }
+          readOnly={!canEdit || readOnly}
+        />
 
         <View style={styles.navigation}>
           <Pressable
@@ -271,26 +227,6 @@ export default function DeviceDetailScreen() {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={Boolean(previewUri)}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setPreviewUri('')}
-      >
-        <Pressable
-          style={styles.lightbox}
-          onPress={() => setPreviewUri('')}
-        >
-          {previewUri ? (
-            <Image
-              source={{ uri: previewUri }}
-              style={styles.lightboxImage}
-              resizeMode="contain"
-            />
-          ) : null}
-          <Text style={styles.closeHint}>Toque para cerrar</Text>
-        </Pressable>
-      </Modal>
     </>
   );
 }
@@ -358,78 +294,8 @@ const styles = StyleSheet.create({
   },
   observationLabel: { color: colors.primary, fontWeight: '900', fontSize: 11 },
   observationText: { color: colors.text, lineHeight: 20 },
-  sectionHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sectionTitle: { color: colors.text, fontWeight: '900', fontSize: 18 },
-  sectionCount: {
-    color: colors.primary,
-    fontWeight: '900',
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  gallery: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  evidenceCard: {
-    flexBasis: '47%',
-    flexGrow: 1,
-    minWidth: 140,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.surfaceCard,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineSoft,
-  },
-  image: { width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.surfaceLow },
-  imagePlaceholder: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    backgroundColor: colors.surfaceLow,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    padding: spacing.sm,
-  },
-  placeholderIcon: { color: colors.primary, fontSize: 26 },
-  placeholderText: { color: colors.muted, fontWeight: '700', fontSize: 11 },
-  evidenceBody: { padding: spacing.sm, gap: 3 },
-  evidenceType: { color: colors.primary, fontWeight: '900', fontSize: 10 },
-  evidenceNote: { color: colors.text, fontWeight: '700', fontSize: 12 },
-  remoteHint: { color: colors.muted, fontSize: 9, lineHeight: 12, marginTop: 2 },
-  noEvidence: {
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceCard,
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  noEvidenceTitle: { color: colors.text, fontWeight: '900' },
-  noEvidenceText: { color: colors.muted, textAlign: 'center' },
-  navigation: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
-  navButton: {
-    flex: 1,
-    minHeight: sizing.buttonHeight,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.outlineSoft,
-    backgroundColor: colors.surfaceCard,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   navPrimary: { backgroundColor: colors.primary, borderColor: colors.primary },
   navDisabled: { opacity: 0.35 },
   navLabel: { color: colors.text, fontWeight: '900' },
   navPrimaryLabel: { color: '#fff' },
-  lightbox: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.md,
-  },
-  lightboxImage: { width: '100%', height: '80%' },
-  closeHint: { color: '#fff', marginTop: spacing.sm, fontWeight: '700' },
 });

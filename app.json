@@ -8,7 +8,15 @@
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DMS Mantenimientos usa sus fotos para adjuntar evidencias de mantenimiento.",
+          "cameraPermission": "DMS Mantenimientos usa la cámara para registrar evidencias de mantenimiento.",
+          "microphonePermission": "DMS Mantenimientos usa el micrófono al grabar evidencias de video."
+        }
+      ]
     ],
     "android": {
       "predictiveBackGestureEnabled": false

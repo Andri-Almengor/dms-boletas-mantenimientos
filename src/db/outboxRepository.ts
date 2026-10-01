@@ -83,7 +83,8 @@ export async function enqueueOutboxOperationTx(
   const pending = dedupeKey
     ? await db.getFirstAsync<OutboxRow>(
       `SELECT * FROM sync_outbox
-       WHERE scope_key = ? AND dedupe_key = ? AND status = 'PENDING'
+       WHERE scope_key = ? AND dedupe_key = ?
+       AND status IN ('PENDING', 'FAILED')
        ORDER BY row_id DESC LIMIT 1`,
       scopeKey,
       dedupeKey,
@@ -99,7 +100,9 @@ export async function enqueueOutboxOperationTx(
       `UPDATE sync_outbox
        SET payload_json = ?, operation_kind = ?, priority = ?,
            aggregate_id = ?, local_file_id = ?,
-           depends_on_operation_id = ?, updated_at = ?
+           depends_on_operation_id = ?, status = 'PENDING',
+           next_attempt_at = '', last_error_code = '',
+           last_error_message = '', updated_at = ?
        WHERE operation_id = ?`,
       stringifyJson(payload),
       input.operationKind,
