@@ -300,6 +300,45 @@ Los cambios locales emiten una señal en memoria con debounce; los repositorios 
 
 No existe un servicio vivo ni polling agresivo. BackgroundTask usa un intervalo mínimo de 60 minutos y el sistema operativo decide cuándo ejecutarlo. En foreground solo existe un timer hacia el siguiente límite horario (07:00 o 17:00).
 
+### Etapa 9 — Hardening ✅
+
+Se reforzó la arquitectura existente sin introducir un segundo motor de sincronización.
+
+#### Concurrencia y lease
+
+- foreground, background y sincronización manual siguen compitiendo por el mismo lease SQLite;
+- el lease se renueva antes de cada nueva unidad de red;
+- snapshots, `sync.delta`, firma y cada chunk de evidencia mantienen vivo el lease durante operaciones largas;
+- antes de aplicar un éxito remoto localmente se comprueba nuevamente que la instancia conserva el lease;
+- si aparece `SYNC_LOCK_LOST`, la instancia vieja deja la operación `IN_FLIGHT` sin mutarla y el nuevo propietario la recupera mediante el flujo existente.
+
+SQLite mantiene WAL y ahora usa `busy_timeout=5000` para reducir fallos transitorios entre foreground/background. También se ejecuta `PRAGMA optimize` tras inicializar/migrar.
+
+#### Conflictos
+
+El registro local de conflictos es idempotente por entidad mientras exista un conflicto abierto.
+
+Cuando un mantenimiento fue eliminado remotamente pero el dispositivo conserva cambios offline, se registra además una fila autoritativa en `sync_conflicts`; el contador y estado visual ya no dependen únicamente del estado `CONFLICT` de la outbox.
+
+No se aplica automáticamente KEEP_LOCAL ni USE_SERVER.
+
+#### Housekeeping seguro
+
+Después de un ciclo completo se realiza limpieza conservadora:
+
+- operaciones `SUCCEEDED` de más de 7 días se eliminan solo si ninguna operación no completada depende de ellas;
+- archivos locales de más de 24 horas se consideran huérfanos únicamente si no están referenciados por evidencia activa, firma ni outbox no resuelta;
+- el borrado físico ocurre antes de eliminar su registro SQLite;
+- si el sistema operativo no permite borrar un archivo, el registro se conserva para reintentar posteriormente.
+
+Se agregaron índices para la barrera por `aggregate_id` y para la búsqueda de archivos antiguos, evitando escaneos completos en esos flujos.
+
+#### Diagnóstico
+
+Los errores reales del ciclo y las operaciones bloqueadas quedan reflejados en `sync_state`. Un cierre de ventana automática continúa siendo `PAUSED`, no un error.
+
+No se modificaron rutas, permisos, estados de negocio, PostgreSQL, Drive, PDFs, correo, Google Chat ni Apps Script.
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -353,7 +392,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 6. **Evidencias** ✅
 7. **Firmas y finalización** ✅
 8. **Triggers automáticos** ✅
-9. **Hardening** — concurrencia, recuperación, rendimiento, pruebas y consistencia web/móvil.
+9. **Hardening** ✅
 10. **APK / distribución** — EAS Build y validación en Android real.
 
 ## Configuración
