@@ -2,6 +2,10 @@ import { NativeDateField } from '@/components/forms/NativeDateField';
 import { OptionItem, OptionSheet } from '@/components/forms/OptionSheet';
 import { DynamicQuestionField } from '@/components/maintenance/DynamicQuestionField';
 import {
+  EquipmentLocationCreatorModal,
+  EquipmentLocationCreatorValue,
+} from '@/components/maintenance/EquipmentLocationCreatorModal';
+import {
   DraftMaintenanceEvidence,
   MaintenanceEvidenceDraftSection,
 } from '@/components/maintenance/MaintenanceEvidenceDraftSection';
@@ -17,7 +21,10 @@ import {
   readLocalMaintenanceDetail,
 } from '@/db/maintenanceDetailRepository';
 import { getLocalMaintenance } from '@/db/maintenanceRepository';
-import { listResourceItems } from '@/db/resourceRepository';
+import {
+  listResourceItems,
+  listResourceItemsByParents,
+} from '@/db/resourceRepository';
 import {
   createDeviceEditorForm,
   deviceCompletion,
@@ -61,6 +68,7 @@ import {
   useRouter,
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useEffect,
   useMemo,
@@ -70,7 +78,6 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -83,6 +90,8 @@ type Props = {
   mode: 'create' | 'edit';
   maintenanceId: string;
   deviceId?: string;
+  initialEquipmentLocationId?: string;
+  initialEquipmentLocationName?: string;
 };
 
 type RecordLike = Record<string, unknown>;
@@ -165,9 +174,12 @@ export function DeviceEditorScreen({
   mode,
   maintenanceId,
   deviceId = '',
+  initialEquipmentLocationId = '',
+  initialEquipmentLocationName = '',
 }: Props) {
   const db = useSQLiteContext();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     user,
     loading: authLoading,
@@ -193,9 +205,6 @@ export function DeviceEditorScreen({
   const scrollRef = useRef<ScrollView>(null);
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState<EquipmentLocationDraft | null>(null);
-  const [newLocationParentId, setNewLocationParentId] = useState('');
-  const [newLocationName, setNewLocationName] = useState('');
-  const [newLocationDescription, setNewLocationDescription] = useState('');
 
   const allowed = canEditMaintenance(permissions);
   const readOnly = maintenance
@@ -261,23 +270,15 @@ export function DeviceEditorScreen({
           ...clientLocationRows,
           ...fallbackLocation,
         ];
-        const equipmentGroups = await Promise.all(
-          clientLocations.map((row) => {
-            const parentId = first(
-              row,
-              ['UbicacionID', 'ubicacionId', 'id'],
-            );
-            return parentId
-              ? listResourceItems(
-                  db,
-                  dataScope,
-                  'equipmentLocation',
-                  parentId,
-                )
-              : Promise.resolve([]);
-          }),
+        const equipment = await listResourceItemsByParents(
+          db,
+          dataScope,
+          'equipmentLocation',
+          clientLocations.map((row) => first(
+            row,
+            ['UbicacionID', 'ubicacionId', 'id'],
+          )),
         );
-        const equipment = equipmentGroups.flat();
 
         const config = maintenanceConfig[0] || {};
         const rawQuestions = Array.isArray(config.questions)
@@ -333,6 +334,24 @@ export function DeviceEditorScreen({
           };
         }
 
+        if (mode === 'create' && initialEquipmentLocationId) {
+          const presetLocation = equipment.find((row) => (
+            first(
+              row,
+              ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
+            ) === initialEquipmentLocationId
+          ));
+          nextForm = {
+            ...nextForm,
+            equipmentLocationId: initialEquipmentLocationId,
+            equipmentLocationName: initialEquipmentLocationName
+              || first(
+                presetLocation,
+                ['Nombre', 'UbicacionEquipo', 'zona'],
+              ),
+          };
+        }
+
         if (!active) return;
         setMaintenance(maintenanceRow);
         setDetailComplete(Boolean(localDetail?.detailComplete));
@@ -361,7 +380,16 @@ export function DeviceEditorScreen({
 
     load().catch(() => undefined);
     return () => { active = false; };
-  }, [db, dataScope, user, maintenanceId, deviceId, mode]);
+  }, [
+    db,
+    dataScope,
+    user,
+    maintenanceId,
+    deviceId,
+    mode,
+    initialEquipmentLocationId,
+    initialEquipmentLocationName,
+  ]);
 
   useEffect(() => {
     draftEvidenceRef.current = draftEvidence;
@@ -719,36 +747,15 @@ export function DeviceEditorScreen({
   const canCreateLocation = canCreateOperationalClientData(permissions);
 
   function openLocationCreator() {
-    const maintenanceLocationId = first(
-      maintenance || undefined,
-      ['UbicacionID', 'ubicacionId'],
-    );
-    setNewLocationParentId(
-      maintenanceLocationId
-      || clientLocationOptions[0]?.value
-      || '',
-    );
-    setNewLocationName('');
-    setNewLocationDescription('');
     setLocationModalOpen(true);
   }
 
-  function acceptLocationDraft() {
-    const parentLocationId = String(newLocationParentId || '').trim();
-    const name = String(newLocationName || '').trim();
-    if (!parentLocationId) {
-      setError('Seleccione la ubicación principal.');
-      return;
-    }
-    if (!name) {
-      setError('Escriba el nombre de la ubicación del equipo.');
-      return;
-    }
+  function acceptLocationDraft(value: EquipmentLocationCreatorValue) {
     const draft: EquipmentLocationDraft = {
       localId: createLocalId('ubicacion-equipo'),
-      parentLocationId,
-      name,
-      description: String(newLocationDescription || '').trim(),
+      parentLocationId: value.parentLocationId,
+      name: value.name,
+      description: value.description,
     };
     setLocationDraft(draft);
     patch({
@@ -813,7 +820,7 @@ export function DeviceEditorScreen({
             </Text>
             <Text style={styles.subtitle}>
               Complete ubicación, datos del dispositivo y evidencias en una sola pantalla.
-              Todo se guarda primero en SQLite y se sincroniza después.
+              Los cambios se guardan primero en este teléfono y se sincronizan después.
             </Text>
             {!detailComplete ? (
               <Text style={styles.warningText}>
@@ -821,6 +828,21 @@ export function DeviceEditorScreen({
               </Text>
             ) : null}
           </View>
+
+          {form.equipmentLocationId ? (
+            <View style={styles.activeLocation}>
+              <View style={styles.activeLocationIcon}>
+                <Text style={styles.activeLocationGlyph}>⌖</Text>
+              </View>
+              <View style={styles.activeLocationCopy}>
+                <Text style={styles.activeLocationLabel}>Ubicación activa</Text>
+                <Text style={styles.activeLocationName} numberOfLines={1}>
+                  {form.equipmentLocationName || 'Ubicación seleccionada'}
+                </Text>
+              </View>
+              <Text style={styles.activeLocationCheck}>✓</Text>
+            </View>
+          ) : null}
 
           {error ? (
             <View style={styles.errorBox}>
@@ -1124,7 +1146,10 @@ export function DeviceEditorScreen({
         </ScrollView>
 
         {!readOnly ? (
-          <View style={styles.footer}>
+          <View style={[
+            styles.footer,
+            { paddingBottom: Math.max(spacing.sm, insets.bottom + spacing.xs) },
+          ]}>
             {mode === 'edit' && canDeleteMaintenanceDevice(permissions, maintenance.Estado) ? (
               <Pressable
                 onPress={requestDelete}
@@ -1173,62 +1198,18 @@ export function DeviceEditorScreen({
         ) : null}
       </View>
 
-      <Modal
+      <EquipmentLocationCreatorModal
         visible={locationModalOpen}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setLocationModalOpen(false)}
-      >
-        <View style={styles.modalScreen}>
-          <View style={styles.modalHeader}>
-            <Pressable
-              onPress={() => setLocationModalOpen(false)}
-              style={styles.modalHeaderAction}
-            >
-              <Text style={styles.modalCancelText}>Cancelar</Text>
-            </Pressable>
-            <Text style={styles.modalTitle}>Nueva ubicación del equipo</Text>
-            <Pressable
-              onPress={acceptLocationDraft}
-              style={styles.modalHeaderAction}
-            >
-              <Text style={styles.modalSaveText}>Agregar</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.modalContent}
-          >
-            <Text style={styles.modalHelp}>
-              Igual que en la web, esta ubicación pertenece a una ubicación principal del cliente.
-              Se creará en el servidor cuando corresponda sincronizar.
-            </Text>
-
-            <OptionSheet
-              label="Ubicación principal *"
-              value={newLocationParentId}
-              options={clientLocationOptions}
-              onChange={(value) => setNewLocationParentId(String(value))}
-            />
-
-            <Field
-              label="Nombre *"
-              value={newLocationName}
-              onChange={setNewLocationName}
-              placeholder="Ej. Piso 2 · Cuarto de servidores"
-            />
-
-            <Field
-              label="Descripción"
-              value={newLocationDescription}
-              onChange={setNewLocationDescription}
-              multiline
-              placeholder="Detalle opcional"
-            />
-          </ScrollView>
-        </View>
-      </Modal>
+        parentOptions={clientLocationOptions}
+        initialParentId={first(
+          maintenance || undefined,
+          ['UbicacionID', 'ubicacionId'],
+          clientLocationOptions[0]?.value || '',
+        )}
+        saving={saving}
+        onClose={() => setLocationModalOpen(false)}
+        onSubmit={acceptLocationDraft}
+      />
     </>
   );
 }
@@ -1357,6 +1338,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: spacing.xs,
   },
+  activeLocation: {
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activeLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeLocationGlyph: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  activeLocationCopy: { flex: 1, minWidth: 0 },
+  activeLocationLabel: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  activeLocationName: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 15,
+    marginTop: 2,
+  },
+  activeLocationCheck: {
+    color: colors.success,
+    fontSize: 20,
+    fontWeight: '900',
+  },
   errorBox: {
     padding: spacing.sm,
     borderRadius: radius.sm,
@@ -1482,49 +1507,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '900',
     fontSize: 11,
-  },
-  modalScreen: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  modalHeader: {
-    minHeight: 58,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.outlineSoft,
-    backgroundColor: colors.surfaceCard,
-  },
-  modalHeaderAction: {
-    width: 76,
-    minHeight: sizing.touchTargetMin,
-    justifyContent: 'center',
-  },
-  modalCancelText: {
-    color: colors.muted,
-    fontWeight: '800',
-  },
-  modalTitle: {
-    flex: 1,
-    color: colors.text,
-    textAlign: 'center',
-    fontWeight: '900',
-    fontSize: 15,
-  },
-  modalSaveText: {
-    color: colors.primary,
-    textAlign: 'right',
-    fontWeight: '900',
-  },
-  modalContent: {
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  modalHelp: {
-    color: colors.muted,
-    fontSize: 11,
-    lineHeight: 17,
   },
   footer: {
     position: 'absolute',
