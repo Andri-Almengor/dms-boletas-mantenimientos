@@ -562,11 +562,12 @@ export default function MaintenanceDetailScreen() {
                       onPress={() => setLocationModalOpen(true)}
                       style={({ pressed }) => [
                         styles.quickButton,
+                        styles.quickButtonPrimary,
                         pressed && styles.pressed,
                       ]}
                     >
-                      <Text style={styles.quickIcon}>⌖＋</Text>
-                      <Text style={styles.quickText}>Agregar ubicación</Text>
+                      <Text style={styles.quickIconPrimary}>⌖＋</Text>
+                      <Text style={styles.quickTextPrimary}>Agregar ubicación</Text>
                     </Pressable>
                   ) : null}
 
@@ -575,12 +576,11 @@ export default function MaintenanceDetailScreen() {
                       onPress={() => openNewDevice()}
                       style={({ pressed }) => [
                         styles.quickButton,
-                        styles.quickButtonPrimary,
                         pressed && styles.pressed,
                       ]}
                     >
-                      <Text style={styles.quickIconPrimary}>＋</Text>
-                      <Text style={styles.quickTextPrimary}>
+                      <Text style={styles.quickIcon}>＋</Text>
+                      <Text style={styles.quickText}>
                         Agregar dispositivo
                       </Text>
                     </Pressable>
