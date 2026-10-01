@@ -16,7 +16,7 @@ const push = await readFile(new URL('../src/sync/syncPush.ts', import.meta.url),
 const detail = await readFile(new URL('../src/app/maintenance/[maintenanceId].tsx', import.meta.url), 'utf8');
 
 test('Etapa 7 migra SQLite sin convertir la firma en almacenamiento remoto paralelo', () => {
-  assert.match(schema, /LOCAL_SCHEMA_VERSION = 5/);
+  assert.match(schema, /\{ version: 5, sql: MIGRATION_5 \}/);
   assert.match(schema, /local_maintenance_signatures/);
   assert.match(schema, /local_file_id/);
   assert.match(schema, /sync_status/);
