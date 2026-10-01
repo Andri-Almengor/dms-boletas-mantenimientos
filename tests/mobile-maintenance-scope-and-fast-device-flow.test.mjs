@@ -11,6 +11,10 @@ const editor = await readFile(
   new URL('../src/components/maintenance/DeviceEditorScreen.tsx', import.meta.url),
   'utf8',
 );
+const maintenanceEditor = await readFile(
+  new URL('../src/components/maintenance/MaintenanceEditorScreen.tsx', import.meta.url),
+  'utf8',
+);
 const deviceRepo = await readFile(
   new URL('../src/db/deviceRepository.ts', import.meta.url),
   'utf8',
@@ -21,6 +25,8 @@ test('la app móvil no ofrece crear mantenimientos', async () => {
   await assert.rejects(
     readFile(new URL('../src/app/maintenance/new.tsx', import.meta.url), 'utf8'),
   );
+  assert.doesNotMatch(maintenanceEditor, /mode:\s*'create'|canCreateMaintenance|createMaintenanceEditorForm/);
+  assert.match(maintenanceEditor, /const allowed = canEditMaintenance\(permissions\)/);
 });
 
 test('firma y finalización siguen fuera de la app móvil', () => {
