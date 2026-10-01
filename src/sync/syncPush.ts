@@ -119,11 +119,13 @@ async function uploadSmallEvidence(
   file: Awaited<ReturnType<typeof localMediaFile>>,
   sessionToken: string,
   signal?: AbortSignal,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
   const base64 = await FileSystem.readAsStringAsync(file.local_uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
 
+  await keepLeaseAlive?.();
   return actionRequest<RecordLike>(
     'maintenance.images.upload',
     {
@@ -143,8 +145,10 @@ async function uploadLargeEvidence(
   file: Awaited<ReturnType<typeof localMediaFile>>,
   sessionToken: string,
   signal?: AbortSignal,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
   const size = Number(payload.size || payload.Size || file.file_size || 0);
+  await keepLeaseAlive?.();
   const init = await actionRequest<LargeUploadInit>(
     'maintenance.images.large.init',
     {
@@ -194,6 +198,7 @@ async function uploadLargeEvidence(
     );
 
     try {
+      await keepLeaseAlive?.();
       const result = await actionRequest<LargeUploadChunk>(
         'maintenance.images.large.chunk',
         {
@@ -236,6 +241,7 @@ async function executeOperation(
   operation: OutboxRow,
   sessionToken: string,
   signal?: AbortSignal,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
   const payload = parseJsonObject<RecordLike>(operation.payload_json);
 
@@ -258,6 +264,7 @@ async function executeOperation(
       throw error;
     }
 
+    await keepLeaseAlive?.();
     const link = await actionRequest<RecordLike>(
       'maintenance.signature.link',
       {
@@ -287,6 +294,7 @@ async function executeOperation(
       encoding: FileSystem.EncodingType.Base64,
     });
     try {
+      await keepLeaseAlive?.();
       return await actionRequest<RecordLike>(
         'maintenance.signature.public.submit',
         {
@@ -303,6 +311,7 @@ async function executeOperation(
   }
 
   if (operation.operation_kind !== 'MEDIA_UPLOAD') {
+    await keepLeaseAlive?.();
     return actionRequest<unknown>(
       operation.route,
       payload,
@@ -332,6 +341,7 @@ async function executeOperation(
       file,
       sessionToken,
       signal,
+      keepLeaseAlive,
     );
   }
 
@@ -340,6 +350,7 @@ async function executeOperation(
     file,
     sessionToken,
     signal,
+    keepLeaseAlive,
   );
 }
 
@@ -518,6 +529,7 @@ export async function pushOutbox(
       },
     ) => void;
     shouldContinue?: () => boolean;
+    keepLeaseAlive?: () => Promise<void>;
   },
 ) {
   let processed = 0;
@@ -538,6 +550,7 @@ export async function pushOutbox(
       if (input.shouldContinue && !input.shouldContinue()) {
         throw automaticSyncWindowClosedError();
       }
+      await input.keepLeaseAlive?.();
       await markOutboxInFlight(
         db,
         operation.operation_id,
@@ -550,7 +563,9 @@ export async function pushOutbox(
           operation,
           input.sessionToken,
           input.signal,
+          input.keepLeaseAlive,
         );
+        await input.keepLeaseAlive?.();
         await completeSuccess(
           db,
           input.scopeKey,
@@ -560,6 +575,12 @@ export async function pushOutbox(
         succeeded += 1;
       } catch (error) {
         const info = errorInfo(error);
+
+        // Si otro proceso adquirió el lease, no tocar la operación:
+        // el nuevo propietario recuperará IN_FLIGHT antes de procesarla.
+        if (info.code === 'SYNC_LOCK_LOST') {
+          throw error;
+        }
 
         if (isAuthenticationError(error)) {
           await markOutboxFailed(
