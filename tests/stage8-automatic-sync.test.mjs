@@ -60,9 +60,10 @@ test('al llegar las 17 no se inicia otra unidad automática', () => {
 });
 
 test('sync.delta y snapshots vuelven a comprobar horario antes de cada nueva solicitud', () => {
-  assert.match(pull, /for \(let page = 1; page <= 100; page \+= 1\) \{\s*assertNetworkUnitAllowed\(shouldContinue\)/);
-  assert.match(pull, /for \(let page = 0; page < 20; page \+= 1\) \{\s*assertNetworkUnitAllowed\(shouldContinue\)/);
-  assert.match(pull, /assertNetworkUnitAllowed\(input\.shouldContinue\)/);
+  assert.match(pull, /prepareNetworkUnit[\s\S]*assertNetworkUnitAllowed\(shouldContinue\)/);
+  assert.match(pull, /for \(let page = 1; page <= 100; page \+= 1\) \{\s*await prepareNetworkUnit\(shouldContinue, keepLeaseAlive\)/);
+  assert.match(pull, /for \(let page = 0; page < 20; page \+= 1\) \{\s*await prepareNetworkUnit\(shouldContinue, keepLeaseAlive\)/);
+  assert.match(pull, /input\.shouldContinue,\s*input\.keepLeaseAlive/);
 });
 
 test('una operación de outbox ya iniciada puede completar su unidad atómica', () => {
