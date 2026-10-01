@@ -267,7 +267,7 @@ export async function saveLocalEquipmentLocation(
       scopeKey,
       maintenanceId,
       draft,
-      maintenanceDependency.dependsOnOperationId || '',
+      maintenanceCreate?.operation_id || '',
     );
   });
   return result;
