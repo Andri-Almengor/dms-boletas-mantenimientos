@@ -10,6 +10,8 @@ const repository = await readFile(new URL('../src/db/evidenceRepository.ts', imp
 const outbox = await readFile(new URL('../src/db/outboxRepository.ts', import.meta.url), 'utf8');
 const push = await readFile(new URL('../src/sync/syncPush.ts', import.meta.url), 'utf8');
 const manager = await readFile(new URL('../src/components/maintenance/MaintenanceEvidenceManager.tsx', import.meta.url), 'utf8');
+const picker = await readFile(new URL('../src/components/maintenance/MaintenanceEvidencePickerControls.tsx', import.meta.url), 'utf8');
+const draftSection = await readFile(new URL('../src/components/maintenance/MaintenanceEvidenceDraftSection.tsx', import.meta.url), 'utf8');
 const detail = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId].tsx', import.meta.url), 'utf8');
 
 test('Etapa 6 instala APIs Expo compatibles con cámara, galería y video', () => {
@@ -91,11 +93,13 @@ test('detalle de dispositivo comparte el administrador de evidencias', () => {
   assert.match(detail, /readOnly=/);
 });
 
-test('ImagePicker recupera resultados pendientes de Android y soporta edición nativa de foto', () => {
-  assert.match(manager, /getPendingResultAsync/);
-  assert.match(manager, /launchCameraAsync/);
-  assert.match(manager, /launchImageLibraryAsync/);
-  assert.match(manager, /allowsEditing: true/);
-  assert.match(manager, /allowsMultipleSelection: true/);
-  assert.match(manager, /videoMaxDuration: 90/);
+test('ImagePicker se comparte entre evidencia existente y evidencia al crear dispositivo', () => {
+  assert.match(manager, /MaintenanceEvidencePickerControls/);
+  assert.match(draftSection, /MaintenanceEvidencePickerControls/);
+  assert.match(picker, /getPendingResultAsync/);
+  assert.match(picker, /launchCameraAsync/);
+  assert.match(picker, /launchImageLibraryAsync/);
+  assert.match(picker, /allowsEditing: true/);
+  assert.match(picker, /allowsMultipleSelection: true/);
+  assert.match(picker, /videoMaxDuration: 90/);
 });
