@@ -610,7 +610,7 @@ export default function MaintenanceDetailScreen() {
               <View style={styles.progressTrack}>
                 <View style={[
                   styles.progressFill,
-                  { width: `${progress}%` },
+                  { width: `${progress}%` as `${number}%` },
                 ]} />
               </View>
               <Text style={styles.progressCaption}>
