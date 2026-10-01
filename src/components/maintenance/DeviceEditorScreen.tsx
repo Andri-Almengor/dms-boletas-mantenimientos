@@ -1150,23 +1150,6 @@ export function DeviceEditorScreen({
             styles.footer,
             { paddingBottom: Math.max(spacing.sm, insets.bottom + spacing.xs) },
           ]}>
-            {mode === 'edit' && canDeleteMaintenanceDevice(permissions, maintenance.Estado) ? (
-              <Pressable
-                onPress={requestDelete}
-                disabled={saving}
-                style={styles.deleteButton}
-              >
-                <Text style={styles.deleteText}>Eliminar</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => router.back()}
-                disabled={saving}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.secondaryButtonText}>Cancelar</Text>
-              </Pressable>
-            )}
             {mode === 'create' ? (
               <Pressable
                 onPress={() => save(true)}
@@ -1176,24 +1159,57 @@ export function DeviceEditorScreen({
                   (saving || !detailComplete) && styles.disabled,
                 ]}
               >
+                <Text style={styles.continueButtonGlyph}>⊕</Text>
                 <Text style={styles.continueButtonText}>
                   Guardar y agregar otro
                 </Text>
               </Pressable>
             ) : null}
-            <Pressable
-              onPress={() => save(false)}
-              disabled={saving || !detailComplete}
-              style={[
-                styles.primaryButton,
-                (saving || !detailComplete) && styles.disabled,
-              ]}
-            >
-              {saving ? <ActivityIndicator color="#fff" /> : null}
-              <Text style={styles.primaryButtonText}>
-                {saving ? 'Guardando…' : 'Guardar'}
-              </Text>
-            </Pressable>
+
+            <View style={styles.footerRow}>
+              <Pressable
+                onPress={() => save(false)}
+                disabled={saving || !detailComplete}
+                style={[
+                  mode === 'create'
+                    ? styles.saveSecondaryButton
+                    : styles.primaryButton,
+                  (saving || !detailComplete) && styles.disabled,
+                ]}
+              >
+                {saving ? (
+                  <ActivityIndicator
+                    color={mode === 'create' ? colors.primary : '#fff'}
+                    size="small"
+                  />
+                ) : null}
+                <Text style={[
+                  mode === 'create'
+                    ? styles.saveSecondaryButtonText
+                    : styles.primaryButtonText,
+                ]}>
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </Text>
+              </Pressable>
+
+              {mode === 'edit' && canDeleteMaintenanceDevice(permissions, maintenance.Estado) ? (
+                <Pressable
+                  onPress={requestDelete}
+                  disabled={saving}
+                  style={styles.deleteButton}
+                >
+                  <Text style={styles.deleteText}>Eliminar</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => router.back()}
+                  disabled={saving}
+                  style={styles.secondaryButton}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         ) : null}
       </View>
@@ -1307,7 +1323,7 @@ function ChoiceField({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: 110 },
+  content: { padding: spacing.md, gap: spacing.md, paddingBottom: 170 },
   center: {
     flex: 1,
     backgroundColor: colors.surface,
@@ -1513,33 +1529,43 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
     backgroundColor: colors.surfaceCard,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.outlineSoft,
+    gap: spacing.xs,
+  },
+  footerRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   continueButton: {
-    flex: 2,
+    width: '100%',
     minHeight: sizing.buttonHeight,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.sm,
   },
-  continueButtonText: {
-    color: colors.primary,
+  continueButtonGlyph: {
+    color: '#ffffff',
+    fontSize: 18,
     fontWeight: '900',
-    fontSize: 11,
+  },
+  continueButtonText: {
+    color: '#ffffff',
+    fontWeight: '900',
+    fontSize: 12,
     textAlign: 'center',
   },
   primaryButton: {
-    flex: 2,
+    flex: 1,
     minHeight: sizing.buttonHeight,
     borderRadius: radius.sm,
     backgroundColor: colors.primary,
@@ -1549,6 +1575,22 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   primaryButtonText: { color: '#fff', fontWeight: '900' },
+  saveSecondaryButton: {
+    flex: 1,
+    minHeight: sizing.buttonHeight,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  saveSecondaryButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+  },
   secondaryButton: {
     flex: 1,
     minHeight: sizing.buttonHeight,
