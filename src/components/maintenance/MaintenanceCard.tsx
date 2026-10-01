@@ -56,7 +56,10 @@ export function MaintenanceCard({ item, onPress }: Props) {
       accessibilityRole="button"
       accessibilityLabel={`Abrir ${maintenanceTitle(item)}`}
     >
-      <View style={styles.accent} />
+      <View style={[
+        styles.accent,
+        status === 'FINALIZADO' ? styles.accentDone : styles.accentPending,
+      ]} />
 
       <View style={styles.body}>
         <View style={styles.topRow}>
@@ -150,7 +153,12 @@ const styles = StyleSheet.create({
   },
   accent: {
     width: 5,
-    backgroundColor: colors.primary,
+  },
+  accentPending: {
+    backgroundColor: colors.warning,
+  },
+  accentDone: {
+    backgroundColor: colors.success,
   },
   body: {
     flex: 1,
