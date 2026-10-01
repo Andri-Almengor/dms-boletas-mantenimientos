@@ -71,6 +71,9 @@ test('finalización local conserva el permiso y la ruta existentes', () => {
   assert.doesNotMatch(permissions, /MANTENIMIENTOS_FINALIZAR|MOBILE_FINALIZE|OFFLINE_FINALIZE/);
   assert.match(finalizationRepo, /route: 'maintenance\.finalize'/);
   assert.match(finalizationRepo, /operationKind: 'FINALIZE_PENDING'/);
+  assert.match(finalizationRepo, /retryFinalization = String/);
+  assert.match(finalizationRepo, /EstadoFinalizacion/);
+  assert.match(finalizationRepo, /=== 'ERROR'/);
 });
 
 test('FINALIZE_PENDING no marca FINALIZADO de forma optimista y espera el agregado completo', () => {

@@ -86,18 +86,20 @@ export async function queueLocalMaintenanceFinalization(
 
     const requestedAt = new Date().toISOString();
     const requestId = maintenanceFinalizationRequestId(maintenanceId);
+    const local = parseJsonObject<RecordLike>(row.payload_json);
+    const retryFinalization = String(
+      local.EstadoFinalizacion || '',
+    ).trim().toUpperCase() === 'ERROR';
     const payload = {
       maintenanceId,
       MantenimientoID: maintenanceId,
       finalizationRequestId: requestId,
-      retryFinalization: false,
+      retryFinalization,
       cancelScheduledFinalization: false,
       forceScheduledFinalization: true,
       finalizationMode: 'NOW',
       requestedAt,
     };
-
-    const local = parseJsonObject<RecordLike>(row.payload_json);
     const marked = {
       ...local,
       EstadoFinalizacion: 'PENDIENTE_SINCRONIZACION',

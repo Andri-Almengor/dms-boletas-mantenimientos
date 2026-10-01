@@ -378,7 +378,7 @@ async function completeSuccess(
         scopeKey,
         maintenanceId: operation.aggregate_id,
         serverFileId: String(request.fileId || request.FirmaArchivoID || ''),
-        serverUrl: String(request.url || request.FirmaURL || ''),
+        serverUrl: String(request.FirmaURL || ''),
         signedAt: String(request.signedAt || request.FechaFirma || ''),
       });
       return;
