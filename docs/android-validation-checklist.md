@@ -10,7 +10,7 @@ El workflow `Android APK` genera un `app-debug.apk` instalable para pruebas téc
 
 - No contiene secretos.
 - Usa la configuración nativa real generada por Expo Prebuild.
-- Permite validar SQLite, cámara, galería, video, firma y BackgroundTask.
+- Permite validar SQLite, cámara, galería, video, flujo rápido de dispositivos y BackgroundTask.
 - La firma debug del runner no se considera una identidad de distribución estable. Si una APK de CI futura no puede actualizar la anterior, se debe desinstalar la build debug de prueba.
 
 ### EAS preview
@@ -60,12 +60,13 @@ Con una sincronización previa realizada:
 10. Grabar o seleccionar video.
 11. Editar metadatos de evidencias.
 12. Eliminar una evidencia local.
-13. Dibujar firma con dedo/stylus.
-14. Guardar firma.
-15. Solicitar finalización cuando el usuario tenga el permiso existente.
+13. Crear una ubicación del equipo desde el formulario si corresponde.
+14. Agregar evidencias antes de guardar un dispositivo nuevo.
+15. Guardar el dispositivo una sola vez.
 16. Cerrar completamente la app.
 17. Volver a abrir todavía sin red.
 18. Confirmar que todos los cambios siguen presentes y pendientes.
+19. Confirmar que no existe opción móvil para crear mantenimiento, firmar ni finalizar.
 
 ## Recuperación de red
 
@@ -74,8 +75,8 @@ Dentro de `07:00 <= hora < 17:00` en `America/Costa_Rica`:
 1. Con cambios offline pendientes, recuperar Internet.
 2. Confirmar que la app dispara el mismo SyncCoordinator automáticamente.
 3. Confirmar PULL → reconciliación → PUSH → PULL final.
-4. Confirmar que dispositivos/evidencias/firma aparecen en la web.
-5. Confirmar que una finalización pendiente se envía después de sus operaciones dependientes.
+4. Confirmar que ubicaciones nuevas, dispositivos y evidencias aparecen en la web.
+5. Confirmar que la ubicación se crea antes del dispositivo y el dispositivo antes de sus evidencias.
 6. Confirmar que no aparecen duplicados.
 
 Fuera de la ventana:
@@ -158,8 +159,19 @@ La APK se considera validada cuando:
 - no sincroniza automáticamente fuera de horario;
 - manual funciona 24/7;
 - no hay doble sync foreground/background;
-- evidencia/firma sobreviven reinicios;
+- dispositivos/evidencias sobreviven reinicios;
 - conflictos no sobrescriben datos silenciosamente;
 - datos sincronizados coinciden con la web;
 - backend continúa siendo la fuente de verdad;
 - no hay secretos dentro del APK ni del repositorio.
+
+
+## Alcance web-only
+
+En la APK no deben aparecer:
+
+- crear mantenimiento;
+- capturar/cargar firma;
+- finalizar mantenimiento.
+
+Esas acciones se validan únicamente desde DMS Boletas web.
