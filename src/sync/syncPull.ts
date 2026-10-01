@@ -70,16 +70,25 @@ function assertNetworkUnitAllowed(shouldContinue?: () => boolean) {
   }
 }
 
+async function prepareNetworkUnit(
+  shouldContinue?: () => boolean,
+  keepLeaseAlive?: () => Promise<void>,
+) {
+  assertNetworkUnitAllowed(shouldContinue);
+  await keepLeaseAlive?.();
+}
+
 async function fetchAllPages(
   route: string,
   sessionToken: string,
   signal?: AbortSignal,
   shouldContinue?: () => boolean,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
   const records: RecordLike[] = [];
 
   for (let page = 1; page <= 100; page += 1) {
-    assertNetworkUnitAllowed(shouldContinue);
+    await prepareNetworkUnit(shouldContinue, keepLeaseAlive);
     const data = await actionRequest<unknown>(
       route,
       { page, pageSize: SNAPSHOT_PAGE_SIZE, activo: true },
@@ -271,8 +280,9 @@ async function probeResource(
   sessionToken: string,
   signal?: AbortSignal,
   shouldContinue?: () => boolean,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
-  assertNetworkUnitAllowed(shouldContinue);
+  await prepareNetworkUnit(shouldContinue, keepLeaseAlive);
   return actionRequest<SyncDelta>(
     'sync.delta',
     {
@@ -294,12 +304,14 @@ async function replaceSnapshot(
   sessionToken: string,
   signal?: AbortSignal,
   shouldContinue?: () => boolean,
+  keepLeaseAlive?: () => Promise<void>,
 ) {
   const records = await fetchAllPages(
     config.route,
     sessionToken,
     signal,
     shouldContinue,
+    keepLeaseAlive,
   );
   if (config.resource === 'maintenance') {
     await applyMaintenanceSnapshot(db, scopeKey, records);
@@ -342,6 +354,7 @@ export async function synchronizeDeltaResource(
     sessionToken: string;
     signal?: AbortSignal;
     shouldContinue?: () => boolean;
+    keepLeaseAlive?: () => Promise<void>;
   },
 ) {
   const {
@@ -350,6 +363,7 @@ export async function synchronizeDeltaResource(
     sessionToken,
     signal,
     shouldContinue,
+    keepLeaseAlive,
   } = input;
   let state = await getSyncState(db, scopeKey, config.resource);
 
@@ -359,6 +373,7 @@ export async function synchronizeDeltaResource(
       sessionToken,
       signal,
       shouldContinue,
+      keepLeaseAlive,
     );
     validateDelta(probe);
     await replaceSnapshot(
@@ -369,6 +384,7 @@ export async function synchronizeDeltaResource(
       sessionToken,
       signal,
       shouldContinue,
+      keepLeaseAlive,
     );
     state = await getSyncState(db, scopeKey, config.resource);
   }
@@ -377,7 +393,7 @@ export async function synchronizeDeltaResource(
 
   let changed = 0;
   for (let page = 0; page < 20; page += 1) {
-    assertNetworkUnitAllowed(shouldContinue);
+    await prepareNetworkUnit(shouldContinue, keepLeaseAlive);
     const delta = await actionRequest<SyncDelta>(
       'sync.delta',
       {
@@ -402,6 +418,7 @@ export async function synchronizeDeltaResource(
         sessionToken,
         signal,
         shouldContinue,
+        keepLeaseAlive,
       );
       state = await getSyncState(db, scopeKey, config.resource);
       if (!state) break;
@@ -441,13 +458,17 @@ export async function refreshStaticResources(
     sessionToken: string;
     signal?: AbortSignal;
     shouldContinue?: () => boolean;
+    keepLeaseAlive?: () => Promise<void>;
   },
 ) {
   const results: { resource: string; count: number; skipped?: boolean }[] = [];
 
   for (const config of STATIC_RESOURCES) {
     try {
-      assertNetworkUnitAllowed(input.shouldContinue);
+      await prepareNetworkUnit(
+        input.shouldContinue,
+        input.keepLeaseAlive,
+      );
       const data = await actionRequest<unknown>(
         config.route,
         { page: 1, pageSize: SNAPSHOT_PAGE_SIZE, activo: true },
@@ -467,7 +488,10 @@ export async function refreshStaticResources(
   }
 
   try {
-    assertNetworkUnitAllowed(input.shouldContinue);
+    await prepareNetworkUnit(
+      input.shouldContinue,
+      input.keepLeaseAlive,
+    );
     const config = await actionRequest<RecordLike>(
       'maintenance.config',
       {},
