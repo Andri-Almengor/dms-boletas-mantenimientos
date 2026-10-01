@@ -377,3 +377,28 @@ export async function listUnresolvedEntityOperations(
     entityId,
   );
 }
+
+
+export async function pruneCompletedOutbox(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  olderThanIso: string,
+) {
+  const result = await db.runAsync(
+    `DELETE FROM sync_outbox
+     WHERE scope_key = ?
+       AND status = 'SUCCEEDED'
+       AND completed_at <> ''
+       AND completed_at < ?
+       AND NOT EXISTS (
+         SELECT 1
+         FROM sync_outbox dependent
+         WHERE dependent.scope_key = sync_outbox.scope_key
+           AND dependent.depends_on_operation_id = sync_outbox.operation_id
+           AND dependent.status <> 'SUCCEEDED'
+       )`,
+    scopeKey,
+    olderThanIso,
+  );
+  return Number(result.changes || 0);
+}
