@@ -31,7 +31,7 @@ test('editor sigue el flujo web: ubicación, identificación, grupo, checklist, 
   const team = editor.indexOf('Fecha y grupo de trabajo');
   const checklist = editor.indexOf('Checklist');
   const observations = editor.indexOf('Observaciones');
-  const evidence = editor.indexOf('MaintenanceEvidenceDraftSection');
+  const evidence = editor.indexOf('<MaintenanceEvidenceDraftSection');
   assert.ok(identification >= 0);
   assert.ok(team > identification);
   assert.ok(checklist > team);
