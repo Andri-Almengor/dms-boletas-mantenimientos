@@ -77,6 +77,7 @@ test('el borrado local utiliza tombstone y maintenance.images.delete', () => {
 test('archivos mayores a 6 MB reutilizan carga segmentada existente', () => {
   assert.match(push, /maintenance\.images\.large\.init/);
   assert.match(push, /maintenance\.images\.large\.chunk/);
+  assert.match(push, /mediaType === 'video'/);
   assert.match(push, /position: offset/);
   assert.match(push, /length,/);
   assert.match(push, /LARGE_EVIDENCE_CHUNK_BYTES/);

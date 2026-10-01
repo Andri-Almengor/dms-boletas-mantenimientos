@@ -6,6 +6,8 @@ const detailRepo = await readFile(new URL('../src/db/maintenanceDetailRepository
 const coordinator = await readFile(new URL('../src/sync/SyncCoordinator.ts', import.meta.url), 'utf8');
 const detailScreen = await readFile(new URL('../src/app/maintenance/[maintenanceId].tsx', import.meta.url), 'utf8');
 const deviceScreen = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId].tsx', import.meta.url), 'utf8');
+const evidenceManager = await readFile(new URL('../src/components/maintenance/MaintenanceEvidenceManager.tsx', import.meta.url), 'utf8');
+const evidenceLightbox = await readFile(new URL('../src/components/maintenance/EvidenceLightbox.tsx', import.meta.url), 'utf8');
 
 test('snapshot autorizado no pisa mantenimiento, dispositivos ni evidencias con outbox pendiente', () => {
   assert.match(detailRepo, /hasUnresolvedEntityOperations/);

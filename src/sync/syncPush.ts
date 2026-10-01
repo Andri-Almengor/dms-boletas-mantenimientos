@@ -251,7 +251,16 @@ async function executeOperation(
     Number(payload.size || payload.Size || 0),
   );
 
-  if (size > LARGE_EVIDENCE_THRESHOLD_BYTES) {
+  const mediaType = String(
+    payload.mediaType
+      || payload.TipoMedio
+      || '',
+  ).toLowerCase();
+
+  if (
+    mediaType === 'video'
+    || size > LARGE_EVIDENCE_THRESHOLD_BYTES
+  ) {
     return uploadLargeEvidence(
       payload,
       file,
