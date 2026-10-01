@@ -9,7 +9,6 @@ import {
 } from '@/db/maintenanceRepository';
 import { listResourceItems } from '@/db/resourceRepository';
 import {
-  createMaintenanceEditorForm,
   expectedMaintenanceTotal,
   maintenanceEditorPayload,
   MaintenanceEditorForm,
@@ -17,7 +16,6 @@ import {
   validateMaintenanceEditor,
 } from '@/features/maintenance/maintenanceEditorDomain';
 import {
-  canCreateMaintenance,
   canEditMaintenance,
   maintenanceReadOnly,
 } from '@/features/maintenance/maintenancePermissions';
@@ -47,8 +45,7 @@ import {
 } from 'react-native';
 
 type Props = {
-  mode: 'create' | 'edit';
-  maintenanceId?: string;
+  maintenanceId: string;
 };
 
 type RecordLike = Record<string, unknown>;
@@ -92,8 +89,7 @@ function ensureOption(
 }
 
 export function MaintenanceEditorScreen({
-  mode,
-  maintenanceId = '',
+  maintenanceId,
 }: Props) {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -114,9 +110,7 @@ export function MaintenanceEditorScreen({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const allowed = mode === 'create'
-    ? canCreateMaintenance(permissions)
-    : canEditMaintenance(permissions);
+  const allowed = canEditMaintenance(permissions);
   const readOnly = form
     ? maintenanceReadOnly(permissions, form.status)
     : false;
@@ -140,27 +134,24 @@ export function MaintenanceEditorScreen({
           first(row, ['Estado'], 'ACTIVO').toUpperCase() !== 'INACTIVO'
         )));
 
-        if (mode === 'edit') {
-          const row = await getLocalMaintenance(
-            db,
-            dataScope,
-            maintenanceId,
-          );
-          if (!row) throw new Error('El mantenimiento no está disponible en SQLite.');
-          const [count] = await Promise.all([
-            countLocalDevices(db, dataScope, maintenanceId),
-          ]);
-          if (!active) return;
-          const knownCount = Math.max(
-            count,
-            Number(row.DispositivosRegistrados || row.CantidadDispositivos || 0),
-          );
-          setDeviceCount(knownCount);
-          setForm(mapMaintenanceToEditor(row, currentUserId));
-        } else {
-          setDeviceCount(0);
-          setForm(createMaintenanceEditorForm(currentUserId));
-        }
+        const row = await getLocalMaintenance(
+          db,
+          dataScope,
+          maintenanceId,
+        );
+        if (!row) throw new Error('El mantenimiento no está disponible en SQLite.');
+        const count = await countLocalDevices(
+          db,
+          dataScope,
+          maintenanceId,
+        );
+        if (!active) return;
+        const knownCount = Math.max(
+          count,
+          Number(row.DispositivosRegistrados || row.CantidadDispositivos || 0),
+        );
+        setDeviceCount(knownCount);
+        setForm(mapMaintenanceToEditor(row, currentUserId));
       } catch (loadError) {
         if (!active) return;
         setError(loadError instanceof Error
@@ -173,7 +164,7 @@ export function MaintenanceEditorScreen({
 
     load().catch(() => undefined);
     return () => { active = false; };
-  }, [db, dataScope, mode, maintenanceId, user]);
+  }, [db, dataScope, maintenanceId, user]);
 
   useEffect(() => {
     if (!dataScope || !form?.clientId) {
@@ -220,7 +211,7 @@ export function MaintenanceEditorScreen({
     return (
       <View style={styles.center}>
         <Stack.Screen options={{ title: 'Mantenimiento' }} />
-        <Text style={styles.stateTitle}>Sin permiso para {mode === 'create' ? 'crear' : 'editar'}</Text>
+        <Text style={styles.stateTitle}>Sin permiso para editar</Text>
         <Text style={styles.stateText}>
           La aplicación móvil reutiliza los mismos permisos de DMS Boletas.
         </Text>
@@ -234,7 +225,7 @@ export function MaintenanceEditorScreen({
   if (loading || !form) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: mode === 'create' ? 'Nuevo mantenimiento' : 'Editar mantenimiento' }} />
+        <Stack.Screen options={{ title: 'Editar mantenimiento' }} />
         <ActivityIndicator color={colors.primary} />
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
@@ -259,7 +250,7 @@ export function MaintenanceEditorScreen({
       const result = await saveLocalMaintenance(
         db,
         dataScope,
-        maintenanceEditorPayload(form, maintenanceId || form.id),
+        maintenanceEditorPayload(form, maintenanceId),
       );
       await refreshStatus();
       router.replace({
@@ -282,7 +273,7 @@ export function MaintenanceEditorScreen({
     <>
       <Stack.Screen
         options={{
-          title: mode === 'create' ? 'Nuevo mantenimiento' : 'Editar mantenimiento',
+          title: 'Editar mantenimiento',
         }}
       />
       <View style={styles.screen}>
@@ -293,7 +284,7 @@ export function MaintenanceEditorScreen({
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>Edición local-first</Text>
             <Text style={styles.title}>
-              {mode === 'create' ? 'Nuevo mantenimiento' : form.title || 'Editar mantenimiento'}
+              {form.title || 'Editar mantenimiento'}
             </Text>
             <Text style={styles.subtitle}>
               Guardar escribe primero en SQLite y deja la operación en la outbox.
