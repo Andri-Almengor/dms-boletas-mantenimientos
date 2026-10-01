@@ -30,6 +30,15 @@ export type LocalMaintenanceDetail = {
   downloadedAt: string;
 };
 
+export type LocalDeviceDetail = {
+  device: LocalDeviceView;
+  evidence: LocalEvidenceView[];
+  position: number;
+  total: number;
+  previousDeviceId: string;
+  nextDeviceId: string;
+};
+
 function maintenanceIdOf(record: RecordLike) {
   return String(
     record.MantenimientoID
@@ -324,7 +333,7 @@ export async function readLocalDeviceDetail(
   scopeKey: string,
   maintenanceId: string,
   deviceId: string,
-) {
+): Promise<LocalDeviceDetail | null> {
   const deviceRow = await db.getFirstAsync<{
     payload_json: string;
     sync_status: string;
@@ -370,18 +379,21 @@ export async function readLocalDeviceDetail(
     deviceId,
   );
 
-  return {
-    device: {
-      ...parseJsonObject<RecordLike>(deviceRow.payload_json),
-      __local: { syncStatus: deviceRow.sync_status },
+  const device: LocalDeviceView = {
+    ...parseJsonObject<RecordLike>(deviceRow.payload_json),
+    __local: { syncStatus: deviceRow.sync_status },
+  };
+  const evidence: LocalEvidenceView[] = evidenceRows.map((row) => ({
+    ...parseJsonObject<RecordLike>(row.payload_json),
+    __local: {
+      syncStatus: row.sync_status,
+      localUri: row.local_uri,
     },
-    evidence: evidenceRows.map((row) => ({
-      ...parseJsonObject<RecordLike>(row.payload_json),
-      __local: {
-        syncStatus: row.sync_status,
-        localUri: row.local_uri,
-      },
-    })),
+  }));
+
+  return {
+    device,
+    evidence,
     position: index >= 0 ? index + 1 : 1,
     total: navigation.length,
     previousDeviceId: index > 0 ? navigation[index - 1].device_id : '',

@@ -1,9 +1,15 @@
 import {
+  LocalDeviceDetail,
   readLocalDeviceDetail,
 } from '@/db/maintenanceDetailRepository';
 import { useAuth } from '@/auth/AuthProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  Redirect,
+  Stack,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, {
   useCallback,
@@ -11,6 +17,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Modal,
   Pressable,
@@ -19,8 +26,6 @@ import {
   Text,
   View,
 } from 'react-native';
-
-type DeviceDetail = NonNullable<Awaited<ReturnType<typeof readLocalDeviceDetail>>>;
 
 function value(record: Record<string, unknown>, keys: string[], fallback = 'Sin dato') {
   for (const key of keys) {
@@ -45,8 +50,12 @@ export default function DeviceDetailScreen() {
   const deviceId = String(params.deviceId || '');
   const db = useSQLiteContext();
   const router = useRouter();
-  const { dataScope } = useAuth();
-  const [detail, setDetail] = useState<DeviceDetail | null>(null);
+  const {
+    user,
+    loading: authLoading,
+    dataScope,
+  } = useAuth();
+  const [detail, setDetail] = useState<LocalDeviceDetail | null>(null);
   const [previewUri, setPreviewUri] = useState('');
 
   const load = useCallback(async () => {
@@ -60,8 +69,24 @@ export default function DeviceDetailScreen() {
   }, [db, dataScope, maintenanceId, deviceId]);
 
   useEffect(() => {
+    setDetail(null);
+    setPreviewUri('');
+  }, [dataScope, maintenanceId, deviceId]);
+
+  useEffect(() => {
     load().catch(() => undefined);
   }, [load]);
+
+  if (authLoading) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title: 'Dispositivo' }} />
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+  if (!user) return <Redirect href="/login" />;
+  if (user.CambioPasswordObligatorio) return <Redirect href="/change-password" />;
 
   if (!detail) {
     return (

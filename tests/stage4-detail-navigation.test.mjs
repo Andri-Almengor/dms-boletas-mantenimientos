@@ -38,7 +38,14 @@ test('detalle distingue resumen de snapshot completo', () => {
   assert.match(detailScreen, /disponible sin conexión/i);
 });
 
-test('dispositivo tiene ruta dedicada, anterior/siguiente y galería local ampliable', () => {
+test('las rutas de detalle dejan de mostrar datos al perder sesión o scope', () => {
+  assert.match(detailScreen, /if \(!user\) return <Redirect href="\/login"/);
+  assert.match(deviceScreen, /if \(!user\) return <Redirect href="\/login"/);
+  assert.match(detailScreen, /setDetail\(null\)/);
+  assert.match(deviceScreen, /setDetail\(null\)/);
+});
+
+test('dispositivo tiene ruta dedicada, anterior\/siguiente y galería local ampliable', () => {
   assert.match(deviceScreen, /previousDeviceId/);
   assert.match(deviceScreen, /nextDeviceId/);
   assert.match(deviceScreen, /router\.replace/);

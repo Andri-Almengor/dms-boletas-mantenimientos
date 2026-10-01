@@ -15,7 +15,12 @@ import {
 import { useAuth } from '@/auth/AuthProvider';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  Redirect,
+  Stack,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, {
   useCallback,
@@ -50,7 +55,11 @@ export default function MaintenanceDetailScreen() {
   const maintenanceId = String(params.maintenanceId || '');
   const db = useSQLiteContext();
   const router = useRouter();
-  const { dataScope } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    dataScope,
+  } = useAuth();
   const {
     refreshMaintenanceDetail,
     syncing,
@@ -69,6 +78,10 @@ export default function MaintenanceDetailScreen() {
       setLoading(false);
     }
   }, [db, dataScope, maintenanceId]);
+
+  useEffect(() => {
+    setDetail(null);
+  }, [dataScope, maintenanceId]);
 
   useEffect(() => {
     load().catch(() => undefined);
@@ -107,6 +120,17 @@ export default function MaintenanceDetailScreen() {
       params: { maintenanceId, deviceId: id },
     });
   }
+
+  if (authLoading) {
+    return (
+      <View style={styles.center}>
+        <Stack.Screen options={{ title: 'Mantenimiento' }} />
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+  if (!user) return <Redirect href="/login" />;
+  if (user.CambioPasswordObligatorio) return <Redirect href="/change-password" />;
 
   if (loading && !detail) {
     return (
