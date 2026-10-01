@@ -183,12 +183,14 @@ export function DeviceEditorScreen({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [draftEvidence, setDraftEvidence] = useState<DraftMaintenanceEvidence[]>([]);
   const draftEvidenceRef = useRef<DraftMaintenanceEvidence[]>([]);
   const draftDeviceIdRef = useRef(
     mode === 'create' ? createLocalId('dispositivo') : deviceId,
   );
   const savedDraftRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState<EquipmentLocationDraft | null>(null);
   const [newLocationParentId, setNewLocationParentId] = useState('');
@@ -511,7 +513,7 @@ export function DeviceEditorScreen({
     setForm((current) => current ? { ...current, ...values } : current);
   }
 
-  async function save() {
+  async function save(addAnother = false) {
     if (!form || !maintenance || readOnly || saving) return;
     const currentForm = form;
     const currentMaintenance = maintenance;
@@ -582,6 +584,7 @@ export function DeviceEditorScreen({
 
     setSaving(true);
     setError('');
+    setNotice('');
     try {
       const result = await saveLocalDeviceWithEvidence(
         db,
@@ -601,6 +604,33 @@ export function DeviceEditorScreen({
       draftEvidenceRef.current = [];
       setDraftEvidence([]);
       await refreshStatus();
+
+      if (addAnother && mode === 'create') {
+        const nextBase = createDeviceEditorForm(maintenanceType);
+        const nextCategory = selectedCategories[0]?.key || nextBase.category;
+        const nextType = allowedTypeOptions.find(
+          (item) => item.label === nextCategory,
+        );
+        setForm({
+          ...nextBase,
+          equipmentLocationId: currentForm.equipmentLocationId,
+          equipmentLocationName: currentForm.equipmentLocationName,
+          workDate: currentForm.workDate,
+          technicianIds: [...currentForm.technicianIds],
+          category: nextCategory,
+          deviceTypeId: nextType?.value?.startsWith('legacy:')
+            ? ''
+            : nextType?.value || '',
+          answers: {},
+        });
+        setLocationDraft(null);
+        draftDeviceIdRef.current = createLocalId('dispositivo');
+        savedDraftRef.current = false;
+        setNotice('Dispositivo guardado. Puede registrar el siguiente.');
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+        return;
+      }
+
       router.replace({
         pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
         params: {
@@ -770,6 +800,7 @@ export function DeviceEditorScreen({
       />
       <View style={styles.screen}>
         <ScrollView
+          ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
@@ -781,7 +812,8 @@ export function DeviceEditorScreen({
               {mode === 'create' ? 'Nuevo dispositivo' : form.name || 'Editar dispositivo'}
             </Text>
             <Text style={styles.subtitle}>
-              Los cambios se guardan en SQLite y se sincronizan después.
+              Complete ubicación, datos del dispositivo y evidencias en una sola pantalla.
+              Todo se guarda primero en SQLite y se sincroniza después.
             </Text>
             {!detailComplete ? (
               <Text style={styles.warningText}>
@@ -793,6 +825,12 @@ export function DeviceEditorScreen({
           {error ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          {notice ? (
+            <View style={styles.successBox}>
+              <Text style={styles.successText}>{notice}</Text>
             </View>
           ) : null}
 
@@ -1104,8 +1142,22 @@ export function DeviceEditorScreen({
                 <Text style={styles.secondaryButtonText}>Cancelar</Text>
               </Pressable>
             )}
+            {mode === 'create' ? (
+              <Pressable
+                onPress={() => save(true)}
+                disabled={saving || !detailComplete}
+                style={[
+                  styles.continueButton,
+                  (saving || !detailComplete) && styles.disabled,
+                ]}
+              >
+                <Text style={styles.continueButtonText}>
+                  Guardar y agregar otro
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
-              onPress={save}
+              onPress={() => save(false)}
               disabled={saving || !detailComplete}
               style={[
                 styles.primaryButton,
@@ -1114,7 +1166,7 @@ export function DeviceEditorScreen({
             >
               {saving ? <ActivityIndicator color="#fff" /> : null}
               <Text style={styles.primaryButtonText}>
-                {saving ? 'Guardando…' : 'Guardar localmente'}
+                {saving ? 'Guardando…' : 'Guardar'}
               </Text>
             </Pressable>
           </View>
@@ -1311,6 +1363,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dangerSoft,
   },
   errorText: { color: colors.danger, fontWeight: '700', textAlign: 'center' },
+  successBox: {
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.successSoft,
+  },
+  successText: {
+    color: colors.success,
+    fontWeight: '800',
+    textAlign: 'center',
+    fontSize: 12,
+  },
   section: {
     padding: spacing.md,
     borderRadius: radius.lg,
@@ -1475,6 +1538,23 @@ const styles = StyleSheet.create({
     borderTopColor: colors.outlineSoft,
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  continueButton: {
+    flex: 2,
+    minHeight: sizing.buttonHeight,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  continueButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+    fontSize: 11,
+    textAlign: 'center',
   },
   primaryButton: {
     flex: 2,
