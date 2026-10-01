@@ -7,6 +7,7 @@ import {
 } from '@/db/outboxRepository';
 import {
   deleteLocalFileRecord,
+  registerLocalFile,
 } from '@/db/localFileRepository';
 import {
   maintenanceEvidenceSyncBase,
@@ -222,6 +223,12 @@ export async function saveLocalEvidence(
     maintenanceId: string;
     deviceId: string;
     localFileId?: string;
+    localFile?: {
+      localUri: string;
+      fileName: string;
+      mimeType: string;
+      fileSize: number;
+    };
     patch: EvidenceRecord;
   },
 ) {
@@ -278,7 +285,19 @@ export async function saveLocalEvidence(
     const localOnly = !existing
       || existing.sync_status === 'LOCAL_ONLY'
       || Boolean(mediaUpload);
-    const localFileId = String(input.localFileId || existing?.local_file_id || '');
+    let localFileId = String(input.localFileId || existing?.local_file_id || '');
+    if (input.localFile) {
+      localFileId = await registerLocalFile(transaction, {
+        fileId: localFileId || undefined,
+        scopeKey,
+        ownerType: 'maintenanceEvidence',
+        ownerId: evidenceId,
+        localUri: input.localFile.localUri,
+        fileName: input.localFile.fileName,
+        mimeType: input.localFile.mimeType,
+        fileSize: input.localFile.fileSize,
+      });
+    }
 
     await upsertEvidenceRow(
       transaction,

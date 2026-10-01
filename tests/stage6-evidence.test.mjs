@@ -31,7 +31,9 @@ test('límites de evidencia móvil permanecen alineados con la web', () => {
 test('captura local persiste el archivo antes de crear la operación de sincronización', () => {
   assert.match(storage, /documentDirectory/);
   assert.match(storage, /copyAsync/);
-  assert.match(storage, /registerLocalFile/);
+  assert.match(repository, /withExclusiveTransactionAsync/);
+  assert.match(repository, /registerLocalFile\(transaction/);
+  assert.match(repository, /enqueueOutboxOperationTx\(transaction/);
   assert.match(manager, /persistPickedEvidenceAsset/);
   assert.match(manager, /saveLocalEvidence/);
   assert.doesNotMatch(manager, /actionRequest\(/);

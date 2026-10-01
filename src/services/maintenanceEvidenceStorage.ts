@@ -9,6 +9,7 @@ import {
   getLocalFile,
   registerLocalFile,
 } from '@/db/localFileRepository';
+import { createLocalId } from '@/utils/localId';
 import {
   evidenceFileExtension,
   validatePickedEvidenceAsset,
@@ -84,9 +85,7 @@ function dataUrlParts(value: string) {
 }
 
 export async function persistPickedEvidenceAsset(
-  db: SQLiteDatabase,
   input: {
-    scopeKey: string;
     evidenceId: string;
     asset: ImagePickerAsset;
   },
@@ -113,15 +112,7 @@ export async function persistPickedEvidenceAsset(
     Number('size' in info ? info.size || 0 : 0),
   );
 
-  const localFileId = await registerLocalFile(db, {
-    scopeKey: input.scopeKey,
-    ownerType: 'maintenanceEvidence',
-    ownerId: input.evidenceId,
-    localUri: destination,
-    fileName: metadata.fileName,
-    mimeType: metadata.mimeType,
-    fileSize: size,
-  });
+  const localFileId = createLocalId('file');
 
   return {
     localFileId,
@@ -210,21 +201,29 @@ export async function cacheRemoteEvidence(
   const size = Number('size' in info ? info.size || 0 : 0);
   await assertStorageCapacity(0);
 
-  const localFileId = await registerLocalFile(db, {
-    scopeKey: input.scopeKey,
-    ownerType: 'maintenanceEvidenceCache',
-    ownerId: input.evidenceId,
-    localUri: destination,
-    fileName,
-    mimeType,
-    fileSize: size,
-  });
-  await attachLocalFileToEvidence(
-    db,
-    input.scopeKey,
-    input.evidenceId,
-    localFileId,
-  );
+  let localFileId = '';
+  try {
+    await db.withExclusiveTransactionAsync(async (transaction) => {
+      localFileId = await registerLocalFile(transaction, {
+        scopeKey: input.scopeKey,
+        ownerType: 'maintenanceEvidenceCache',
+        ownerId: input.evidenceId,
+        localUri: destination,
+        fileName,
+        mimeType,
+        fileSize: size,
+      });
+      await attachLocalFileToEvidence(
+        transaction,
+        input.scopeKey,
+        input.evidenceId,
+        localFileId,
+      );
+    });
+  } catch (error) {
+    await removeLocalEvidenceFile(destination);
+    throw error;
+  }
 
   return destination;
 }

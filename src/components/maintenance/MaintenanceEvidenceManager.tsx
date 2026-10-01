@@ -189,14 +189,10 @@ export function MaintenanceEvidenceManager({
         | null = null;
 
       try {
-        stored = await persistPickedEvidenceAsset(
-          db,
-          {
-            scopeKey: dataScope,
-            evidenceId,
-            asset,
-          },
-        );
+        stored = await persistPickedEvidenceAsset({
+          evidenceId,
+          asset,
+        });
 
         const target = projectMode
           ? targets.find(
@@ -221,6 +217,12 @@ export function MaintenanceEvidenceManager({
             maintenanceId,
             deviceId,
             localFileId: stored.localFileId,
+            localFile: {
+              localUri: stored.localUri,
+              fileName: stored.metadata.fileName,
+              mimeType: stored.metadata.mimeType,
+              fileSize: stored.metadata.size,
+            },
             patch: {
               ...payload,
               Size: stored.metadata.size,
