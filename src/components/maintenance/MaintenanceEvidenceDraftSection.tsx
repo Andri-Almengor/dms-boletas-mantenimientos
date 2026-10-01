@@ -105,7 +105,7 @@ export function MaintenanceEvidenceDraftSection({
           fileName: stored.metadata.fileName,
           mimeType: stored.metadata.mimeType,
           size: stored.metadata.size,
-          mediaType: stored.metadata.mediaType,
+          mediaType: stored.metadata.mediaType === 'video' ? 'video' : 'image',
           durationSeconds: stored.metadata.durationSeconds,
           type: newType,
           note: '',
