@@ -157,35 +157,49 @@ export function MaintenanceEvidencePickerControls({
         />
       )}
 
-      <View style={styles.pickerGrid}>
+      <View style={styles.primaryPickerRow}>
         <PickerButton
           label="Tomar foto"
-          icon="📷"
+          icon="▣"
+          primary
           disabled={disabled}
           onPress={takePhoto}
         />
         <PickerButton
-          label="Foto galería"
-          icon="🖼"
+          label="Galería"
+          icon="▧"
           disabled={disabled}
           onPress={pickEditablePhoto}
         />
-        <PickerButton
-          label="Seleccionar varios"
-          icon="▦"
+      </View>
+
+      <View style={styles.secondaryPickerRow}>
+        <Pressable
           disabled={disabled}
           onPress={pickMultiple}
-        />
-        <PickerButton
-          label="Grabar video"
-          icon="▶"
+          style={({ pressed }) => [
+            styles.secondaryAction,
+            disabled && styles.disabled,
+            pressed && !disabled && styles.pressed,
+          ]}
+        >
+          <Text style={styles.secondaryActionText}>▦ Seleccionar varios</Text>
+        </Pressable>
+        <Pressable
           disabled={disabled}
           onPress={recordVideo}
-        />
+          style={({ pressed }) => [
+            styles.secondaryAction,
+            disabled && styles.disabled,
+            pressed && !disabled && styles.pressed,
+          ]}
+        >
+          <Text style={styles.secondaryActionText}>▶ Grabar video</Text>
+        </Pressable>
       </View>
 
       <Text style={styles.helper}>
-        Las fotos individuales permiten recortar o rotar. Fotos y videos se guardan primero en el teléfono y se sincronizan después.
+        Los archivos se guardan primero en el teléfono y se sincronizan después.
       </Text>
     </View>
   );
@@ -194,11 +208,13 @@ export function MaintenanceEvidencePickerControls({
 function PickerButton({
   label,
   icon,
+  primary = false,
   disabled,
   onPress,
 }: {
   label: string;
   icon: string;
+  primary?: boolean;
   disabled: boolean;
   onPress: () => void;
 }) {
@@ -208,12 +224,23 @@ function PickerButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.pickerButton,
+        primary && styles.pickerButtonPrimary,
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
     >
-      <Text style={styles.pickerIcon}>{icon}</Text>
-      <Text style={styles.pickerLabel}>{label}</Text>
+      <Text style={[
+        styles.pickerIcon,
+        primary && styles.pickerIconPrimary,
+      ]}>
+        {icon}
+      </Text>
+      <Text style={[
+        styles.pickerLabel,
+        primary && styles.pickerLabelPrimary,
+      ]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -249,30 +276,63 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   typeChoiceTextSelected: { color: '#fff' },
-  pickerGrid: {
+  primaryPickerRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.xs,
   },
   pickerButton: {
-    minWidth: '47%',
-    flexGrow: 1,
-    flexBasis: '47%',
-    minHeight: 62,
-    padding: spacing.sm,
+    flex: 1,
+    minHeight: 58,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  pickerButtonPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pickerIcon: {
+    color: colors.primary,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  pickerIconPrimary: {
+    color: '#ffffff',
+  },
+  pickerLabel: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  pickerLabelPrimary: {
+    color: '#ffffff',
+  },
+  secondaryPickerRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  secondaryAction: {
+    flex: 1,
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.sm,
     backgroundColor: colors.surfaceCard,
     borderWidth: 1,
     borderColor: colors.outlineSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
   },
-  pickerIcon: { fontSize: 18 },
-  pickerLabel: {
-    color: colors.text,
+  secondaryActionText: {
+    color: colors.muted,
+    fontSize: 9,
     fontWeight: '800',
-    fontSize: 11,
     textAlign: 'center',
   },
   helper: {
