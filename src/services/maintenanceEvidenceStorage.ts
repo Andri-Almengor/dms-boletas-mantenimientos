@@ -84,6 +84,90 @@ function dataUrlParts(value: string) {
   };
 }
 
+export async function persistLocalMaintenanceImageFile(
+  input: {
+    ownerId: string;
+    sourceUri: string;
+    fileName: string;
+    mimeType: string;
+    size?: number;
+    folder?: string;
+  },
+) {
+  await assertStorageCapacity(Number(input.size || 0));
+  const folder = safeSegment(input.folder || 'local', 'local');
+  const root = `${rootDirectory()}${folder}/`;
+  await ensureDirectory(root);
+  const extension = evidenceFileExtension(
+    input.mimeType,
+    input.fileName,
+  );
+  const unique = safeSegment(createLocalId('asset'), 'asset');
+  const destination = `${root}${safeSegment(input.ownerId)}-${unique}.${extension}`;
+
+  await FileSystem.copyAsync({
+    from: input.sourceUri,
+    to: destination,
+  });
+
+  const info = await fileInfo(destination);
+  const size = Math.max(
+    Number(input.size || 0),
+    Number('size' in info ? info.size || 0 : 0),
+  );
+  await assertStorageCapacity(0);
+
+  return {
+    localUri: destination,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size,
+  };
+}
+
+export async function persistBase64MaintenanceImageFile(
+  input: {
+    ownerId: string;
+    base64: string;
+    fileName: string;
+    mimeType: string;
+    folder?: string;
+  },
+) {
+  const base64 = String(input.base64 || '')
+    .replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '')
+    .replace(/\s+/g, '');
+  if (!base64) throw new Error('No se recibió contenido para guardar la imagen.');
+
+  const estimatedBytes = Math.floor(base64.length * 0.75);
+  await assertStorageCapacity(estimatedBytes);
+
+  const folder = safeSegment(input.folder || 'local', 'local');
+  const root = `${rootDirectory()}${folder}/`;
+  await ensureDirectory(root);
+  const extension = evidenceFileExtension(
+    input.mimeType,
+    input.fileName,
+  );
+  const unique = safeSegment(createLocalId('asset'), 'asset');
+  const destination = `${root}${safeSegment(input.ownerId)}-${unique}.${extension}`;
+
+  await FileSystem.writeAsStringAsync(
+    destination,
+    base64,
+    { encoding: FileSystem.EncodingType.Base64 },
+  );
+
+  const info = await fileInfo(destination);
+  const size = Number('size' in info ? info.size || 0 : 0);
+  return {
+    localUri: destination,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size,
+  };
+}
+
 export async function persistPickedEvidenceAsset(
   input: {
     evidenceId: string;
@@ -91,35 +175,23 @@ export async function persistPickedEvidenceAsset(
   },
 ) {
   const metadata = validatePickedEvidenceAsset(input.asset);
-  await assertStorageCapacity(metadata.size);
-
-  const root = `${rootDirectory()}local/`;
-  await ensureDirectory(root);
-  const extension = evidenceFileExtension(
-    metadata.mimeType,
-    metadata.fileName,
-  );
-  const destination = `${root}${safeSegment(input.evidenceId)}.${extension}`;
-
-  await FileSystem.copyAsync({
-    from: input.asset.uri,
-    to: destination,
+  const stored = await persistLocalMaintenanceImageFile({
+    ownerId: input.evidenceId,
+    sourceUri: input.asset.uri,
+    fileName: metadata.fileName,
+    mimeType: metadata.mimeType,
+    size: metadata.size,
+    folder: 'local',
   });
-
-  const info = await fileInfo(destination);
-  const size = Math.max(
-    metadata.size,
-    Number('size' in info ? info.size || 0 : 0),
-  );
 
   const localFileId = createLocalId('file');
 
   return {
     localFileId,
-    localUri: destination,
+    localUri: stored.localUri,
     metadata: {
       ...metadata,
-      size,
+      size: stored.size,
     },
   };
 }
@@ -228,10 +300,14 @@ export async function cacheRemoteEvidence(
   return destination;
 }
 
-export async function removeLocalEvidenceFile(uri: string) {
+export async function removeLocalMaintenanceFile(uri: string) {
   const clean = String(uri || '').trim();
   if (!clean) return;
   await FileSystem.deleteAsync(clean, { idempotent: true }).catch(() => undefined);
+}
+
+export async function removeLocalEvidenceFile(uri: string) {
+  return removeLocalMaintenanceFile(uri);
 }
 
 

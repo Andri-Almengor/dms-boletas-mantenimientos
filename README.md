@@ -260,6 +260,26 @@ Las imágenes se amplían en un lightbox compartido.
 
 Los videos locales/caché se reproducen con `expo-video` y controles nativos.
 
+### Etapa 7 — Firmas y finalización offline ✅
+
+La firma general puede dibujarse con dedo, stylus o mouse, o cargarse como imagen PNG/JPEG. El archivo se conserva primero en almacenamiento persistente y su referencia se registra en SQLite; el Base64 solo se genera o lee al sincronizar.
+
+La app reutiliza el flujo existente del backend:
+
+- `maintenance.signature.link`;
+- `maintenance.signature.public.submit`;
+- `maintenance.finalize`.
+
+No se crearon rutas ni permisos nuevos. La firma respeta los permisos de lectura de mantenimiento existentes y la finalización conserva `USUARIOS_GESTIONAR` como permiso autoritativo del backend.
+
+La firma continúa siendo **opcional** para finalizar. Si no existe, el backend conserva su política actual y genera las boletas/PDF sin firma. Si existe una firma local pendiente, esta debe sincronizarse antes del cierre.
+
+La solicitud de cierre se registra localmente como `FINALIZE_PENDING`; no cambia `Estado` a `FINALIZADO` de forma optimista. La outbox aplica una barrera por mantenimiento: el cierre no se ejecuta mientras exista una edición, evidencia, firma o conflicto previo sin resolver para ese mismo mantenimiento.
+
+Cuando la solicitud llega a `maintenance.finalize`, el backend sigue siendo la fuente de verdad y devuelve el estado de finalización escalonada. El `PULL` final conserva la reconciliación autoritativa.
+
+Guardar firma o solicitar finalización **no inicia sincronización automática**. Fuera de 07:00–17:00 todo queda local; el botón manual puede sincronizar 24/7.
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -313,7 +333,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 4. **Mantenimientos offline** ✅
 5. **Edición offline** ✅
 6. **Evidencias** ✅
-7. **Firmas y finalización** — firma, `FINALIZE_PENDING`, dependencias y conflictos.
+7. **Firmas y finalización** ✅
 8. **Triggers automáticos** — foreground, recuperación de red, cambio local y `expo-background-task`, limitados a 07:00–17:00.
 9. **Hardening** — concurrencia, recuperación, rendimiento, pruebas y consistencia web/móvil.
 10. **APK / distribución** — EAS Build y validación en Android real.
