@@ -339,6 +339,43 @@ Los errores reales del ciclo y las operaciones bloqueadas quedan reflejados en `
 
 No se modificaron rutas, permisos, estados de negocio, PostgreSQL, Drive, PDFs, correo, Google Chat ni Apps Script.
 
+### Etapa 10 — APK / distribución ✅
+
+La app ya tiene identidad Android estable:
+
+```
+com.solutionsdms.dmsmantenimientos
+```
+
+y `versionCode: 1`.
+
+Se agregaron dos perfiles EAS:
+
+- `preview`: distribución interna, genera APK instalable;
+- `production`: genera AAB para Google Play.
+
+Comandos:
+
+```bash
+npm run build:apk
+npm run build:aab
+```
+
+Los scripts usan `npx eas-cli@latest`; EAS CLI no se agrega a las dependencias de la aplicación.
+
+Para crear el primer proyecto EAS, una sola vez:
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest init
+```
+
+No se guardan `EXPO_TOKEN`, keystores ni credenciales Android en Git.
+
+Además, el workflow `Android APK` genera en GitHub Actions una APK debug instalable usando el proyecto Android real de Expo Prebuild y la publica como artefacto `dms-mantenimientos-android-debug`. Esta APK es para validación técnica; para actualizaciones firmadas de forma estable se usa EAS preview.
+
+El checklist completo de dispositivo físico está en `docs/android-validation-checklist.md` e incluye SQLite, offline prolongado, cámara, galería, videos, firma, recuperación de red, límite de las 17:00, sync manual, BackgroundTask, conflictos y actualización conservando datos.
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -393,7 +430,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 7. **Firmas y finalización** ✅
 8. **Triggers automáticos** ✅
 9. **Hardening** ✅
-10. **APK / distribución** — EAS Build y validación en Android real.
+10. **APK / distribución** ✅ — EAS Build, APK nativa de CI y checklist de validación Android.
 
 ## Configuración
 
@@ -405,10 +442,20 @@ npm run typecheck
 npm run start
 ```
 
-Para Android con Expo Go:
+Para Android durante desarrollo rápido:
 
 ```bash
 npm run android
+```
+
+Para validar las APIs nativas y BackgroundTask, usar la APK propia o una build EAS; Expo Go no sustituye la validación de distribución.
+
+Para generar APK interna estable con EAS:
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest init
+npm run build:apk
 ```
 
 La URL pública del backend se configura con:
