@@ -527,20 +527,80 @@ export function DeviceEditorScreen({
       return;
     }
 
+    const requestedDeviceId = currentForm.id
+      || draftDeviceIdRef.current
+      || createLocalId('dispositivo');
+    draftDeviceIdRef.current = requestedDeviceId;
+
+    const devicePayload = {
+      ...deviceEditorPayload(
+        currentForm,
+        maintenanceId,
+        questions,
+        currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
+      ),
+      EvidenciaMantenimientoID: requestedDeviceId,
+      deviceId: requestedDeviceId,
+    };
+    const evidenceTargets = projectMode
+      ? projectEvidenceTargets(devicePayload)
+      : [];
+
+    const preparedEvidence = mode === 'create'
+      ? draftEvidence.map((item) => {
+          const target = projectMode
+            ? evidenceTargets.find(
+                (candidate) => candidate.value === item.targetValue,
+              ) || evidenceTargets[0] || null
+            : null;
+          const patch = createEvidencePayload({
+            evidenceId: item.evidenceId,
+            maintenanceId,
+            deviceId: requestedDeviceId,
+            asset: item.asset,
+            type: item.type,
+            note: item.note,
+            projectMode,
+            target,
+            capturedAt: item.capturedAt,
+          });
+          return {
+            localFileId: item.localFileId,
+            localFile: {
+              localUri: item.localUri,
+              fileName: item.fileName,
+              mimeType: item.mimeType,
+              fileSize: item.size,
+            },
+            patch: {
+              ...patch,
+              Size: item.size,
+              size: item.size,
+            },
+          };
+        })
+      : [];
+
     setSaving(true);
     setError('');
     try {
-      const result = await saveLocalDevice(
+      const result = await saveLocalDeviceWithEvidence(
         db,
         dataScope,
         maintenanceId,
-        deviceEditorPayload(
-          currentForm,
-          maintenanceId,
-          questions,
-          currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
-        ),
+        devicePayload,
+        {
+          equipmentLocationDraft: (
+            locationDraft
+            && locationDraft.localId === currentForm.equipmentLocationId
+          ) ? locationDraft : null,
+          evidence: preparedEvidence,
+        },
       );
+
+      savedDraftRef.current = true;
+      draftEvidenceRef.current = [];
+      setDraftEvidence([]);
       await refreshStatus();
       router.replace({
         pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
@@ -595,15 +655,81 @@ export function DeviceEditorScreen({
     );
   }
 
+  const clientLocationOptions = optionList(
+    catalogs.clientLocations,
+    ['UbicacionID', 'ubicacionId', 'id'],
+    ['Nombre', 'Ubicacion'],
+  );
+  const locationNameById = new Map(
+    clientLocationOptions.map((item) => [item.value, item.label]),
+  );
   const equipmentOptions = ensureOption(
-    optionList(
-      catalogs.equipment,
-      ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
-      ['Nombre', 'UbicacionEquipo', 'zona'],
-    ),
+    catalogs.equipment.map((row) => {
+      const parentId = first(
+        row,
+        ['UbicacionID', 'ubicacionId', 'locationId'],
+      );
+      return {
+        value: first(
+          row,
+          ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
+        ),
+        label: first(
+          row,
+          ['Nombre', 'UbicacionEquipo', 'zona'],
+          'Sin nombre',
+        ),
+        note: catalogs.clientLocations.length > 1
+          ? locationNameById.get(parentId) || ''
+          : '',
+      };
+    }).filter((item) => item.value),
     form.equipmentLocationId,
     form.equipmentLocationName,
   );
+  const canCreateLocation = canCreateOperationalClientData(permissions);
+
+  function openLocationCreator() {
+    const maintenanceLocationId = first(
+      maintenance || undefined,
+      ['UbicacionID', 'ubicacionId'],
+    );
+    setNewLocationParentId(
+      maintenanceLocationId
+      || clientLocationOptions[0]?.value
+      || '',
+    );
+    setNewLocationName('');
+    setNewLocationDescription('');
+    setLocationModalOpen(true);
+  }
+
+  function acceptLocationDraft() {
+    const parentLocationId = String(newLocationParentId || '').trim();
+    const name = String(newLocationName || '').trim();
+    if (!parentLocationId) {
+      setError('Seleccione la ubicación principal.');
+      return;
+    }
+    if (!name) {
+      setError('Escriba el nombre de la ubicación del equipo.');
+      return;
+    }
+    const draft: EquipmentLocationDraft = {
+      localId: createLocalId('ubicacion-equipo'),
+      parentLocationId,
+      name,
+      description: String(newLocationDescription || '').trim(),
+    };
+    setLocationDraft(draft);
+    patch({
+      equipmentLocationId: draft.localId,
+      equipmentLocationName: draft.name,
+    });
+    setLocationModalOpen(false);
+    setError('');
+  }
+
   const technicianOptions = optionList(
     catalogs.users,
     ['UsuarioID', 'userId', 'id'],
