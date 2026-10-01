@@ -32,6 +32,7 @@ import {
   LARGE_EVIDENCE_CHUNK_BYTES,
   LARGE_EVIDENCE_THRESHOLD_BYTES,
 } from '@/features/maintenance/maintenanceEvidence';
+import { automaticSyncWindowClosedError } from '@/sync/syncPolicy';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
@@ -516,6 +517,7 @@ export async function pushOutbox(
         operation: OutboxRow;
       },
     ) => void;
+    shouldContinue?: () => boolean;
   },
 ) {
   let processed = 0;
@@ -533,6 +535,9 @@ export async function pushOutbox(
 
     for (const operation of operations) {
       if (input.signal?.aborted) throw abortError();
+      if (input.shouldContinue && !input.shouldContinue()) {
+        throw automaticSyncWindowClosedError();
+      }
       await markOutboxInFlight(
         db,
         operation.operation_id,
