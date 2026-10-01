@@ -6,6 +6,7 @@ import {
   countUnresolvedOutbox,
 } from '@/db/outboxRepository';
 import {
+  runMaintenanceDetailRefresh,
   runSyncCycle,
   SyncCycleStatus,
   SyncPhase,
@@ -38,6 +39,7 @@ type SyncViewState = {
 
 type SyncContextValue = SyncViewState & {
   syncNow: () => Promise<void>;
+  refreshMaintenanceDetail: (maintenanceId: string) => Promise<boolean>;
   refreshStatus: () => Promise<void>;
 };
 
@@ -81,6 +83,13 @@ function outsideHoursStatus(status: SyncCycleStatus) {
     return 'PAUSED' as const;
   }
   return status;
+}
+
+async function networkAvailable() {
+  const network = await Network.getNetworkStateAsync().catch(
+    () => ({} as Network.NetworkState),
+  );
+  return network.isConnected !== false && network.isInternetReachable !== false;
 }
 
 export function SyncProvider({ children }: PropsWithChildren) {
@@ -134,30 +143,44 @@ export function SyncProvider({ children }: PropsWithChildren) {
     refreshStatus().catch(() => undefined);
   }, [refreshStatus]);
 
+  const applyResult = useCallback((
+    result: Awaited<ReturnType<typeof runSyncCycle>>,
+  ) => {
+    const displayStatus = outsideHoursStatus(result.status);
+    setState((current) => ({
+      ...current,
+      syncing: false,
+      phase: 'idle',
+      status: displayStatus,
+      pendingCount: result.pendingCount,
+      conflictCount: result.conflictCount,
+      message: result.errorMessage
+        || messageFor(displayStatus, result.pendingCount, result.conflictCount),
+      lastSuccessAt: result.status === 'UPDATED' || result.status === 'PENDING'
+        ? Date.now()
+        : current.lastSuccessAt,
+    }));
+  }, []);
+
+  const handleAuthenticationFailure = useCallback(async () => {
+    await clearSession();
+    setState((current) => ({
+      ...current,
+      syncing: false,
+      phase: 'idle',
+      status: 'SESSION_EXPIRED',
+      message: messageFor('SESSION_EXPIRED', current.pendingCount, current.conflictCount),
+    }));
+  }, [clearSession]);
+
   const syncNow = useCallback(async () => {
     if (state.syncing) return;
-
     if (!sessionToken || !user) {
-      setState((current) => ({
-        ...current,
-        status: 'SESSION_EXPIRED',
-        message: messageFor('SESSION_EXPIRED', current.pendingCount, current.conflictCount),
-      }));
+      await handleAuthenticationFailure();
       return;
     }
-
-    const network = await Network.getNetworkStateAsync().catch(
-      () => ({} as Network.NetworkState),
-    );
-    if (network.isConnected === false || network.isInternetReachable === false) {
-      const scopeKey = buildLocalDataScope(user, permissions);
-      const pendingCount = await countUnresolvedOutbox(db, scopeKey);
-      setState((current) => ({
-        ...current,
-        status: 'OFFLINE',
-        message: messageFor('OFFLINE', pendingCount, current.conflictCount),
-        pendingCount,
-      }));
+    if (!(await networkAvailable())) {
+      await refreshStatus();
       return;
     }
 
@@ -185,34 +208,12 @@ export function SyncProvider({ children }: PropsWithChildren) {
           }));
         },
       });
-      const displayStatus = outsideHoursStatus(result.status);
-
-      setState((current) => ({
-        ...current,
-        syncing: false,
-        phase: 'idle',
-        status: displayStatus,
-        pendingCount: result.pendingCount,
-        conflictCount: result.conflictCount,
-        message: result.errorMessage
-          || messageFor(displayStatus, result.pendingCount, result.conflictCount),
-        lastSuccessAt: result.status === 'UPDATED' || result.status === 'PENDING'
-          ? Date.now()
-          : current.lastSuccessAt,
-      }));
+      applyResult(result);
     } catch (error) {
       if (isAuthenticationError(error)) {
-        await clearSession();
-        setState((current) => ({
-          ...current,
-          syncing: false,
-          phase: 'idle',
-          status: 'SESSION_EXPIRED',
-          message: messageFor('SESSION_EXPIRED', current.pendingCount, current.conflictCount),
-        }));
+        await handleAuthenticationFailure();
         return;
       }
-
       setState((current) => ({
         ...current,
         syncing: false,
@@ -228,16 +229,80 @@ export function SyncProvider({ children }: PropsWithChildren) {
     state.syncing,
     sessionToken,
     user,
-    permissions,
     refreshMe,
-    clearSession,
+    applyResult,
+    handleAuthenticationFailure,
+    refreshStatus,
+  ]);
+
+  const refreshMaintenanceDetail = useCallback(async (maintenanceId: string) => {
+    if (state.syncing || !sessionToken || !user) return false;
+    if (!(await networkAvailable())) {
+      await refreshStatus();
+      return false;
+    }
+
+    setState((current) => ({
+      ...current,
+      syncing: true,
+      status: 'BUSY',
+      phase: 'detail',
+      message: 'Actualizando detalle del mantenimiento',
+    }));
+
+    try {
+      const me = await refreshMe();
+      const scopeKey = buildLocalDataScope(me.user, me.permissions || []);
+      const result = await runMaintenanceDetailRefresh(db, {
+        maintenanceId,
+        scopeKey,
+        sessionToken,
+        onProgress: (progress) => {
+          setState((current) => ({
+            ...current,
+            syncing: true,
+            phase: progress.phase,
+            message: progress.message,
+          }));
+        },
+      });
+      applyResult(result);
+      return result.status === 'UPDATED'
+        || result.status === 'PENDING'
+        || result.status === 'CONFLICT';
+    } catch (error) {
+      if (isAuthenticationError(error)) {
+        await handleAuthenticationFailure();
+        return false;
+      }
+      setState((current) => ({
+        ...current,
+        syncing: false,
+        phase: 'idle',
+        status: 'ERROR',
+        message: error instanceof Error
+          ? error.message
+          : messageFor('ERROR', current.pendingCount, current.conflictCount),
+      }));
+      return false;
+    }
+  }, [
+    db,
+    state.syncing,
+    sessionToken,
+    user,
+    refreshMe,
+    applyResult,
+    handleAuthenticationFailure,
+    refreshStatus,
   ]);
 
   const value = useMemo<SyncContextValue>(() => ({
     ...state,
     syncNow,
+    refreshMaintenanceDetail,
     refreshStatus,
-  }), [state, syncNow, refreshStatus]);
+  }), [state, syncNow, refreshMaintenanceDetail, refreshStatus]);
 
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
 }

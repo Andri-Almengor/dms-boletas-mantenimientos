@@ -1,7 +1,11 @@
 import {
+  actionRequest,
   ActionApiError,
   isAuthenticationError,
 } from '@/api/actionClient';
+import {
+  persistAuthorizedMaintenanceDetail,
+} from '@/db/maintenanceDetailRepository';
 import {
   countOpenConflicts,
   countUnresolvedOutbox,
@@ -32,6 +36,7 @@ export type SyncPhase =
   | 'reconcile'
   | 'push'
   | 'final-pull'
+  | 'detail'
   | 'complete';
 
 export type SyncCycleStatus =
@@ -104,6 +109,14 @@ function errorResult(
   };
 }
 
+async function currentCounts(db: SQLiteDatabase, scopeKey: string) {
+  const [pendingCount, conflictCount] = await Promise.all([
+    countUnresolvedOutbox(db, scopeKey),
+    countOpenConflicts(db, scopeKey),
+  ]);
+  return { pendingCount, conflictCount };
+}
+
 export async function runSyncCycle(
   db: SQLiteDatabase,
   input: {
@@ -114,42 +127,25 @@ export async function runSyncCycle(
     onProgress?: (progress: SyncProgress) => void;
   },
 ): Promise<SyncCycleResult> {
-  const initialPending = await countUnresolvedOutbox(db, input.scopeKey);
-  const initialConflicts = await countOpenConflicts(db, input.scopeKey);
+  const initial = await currentCounts(db, input.scopeKey);
 
   if (input.trigger !== 'manual' && !isSyncAllowed(input.trigger)) {
-    return {
-      status: 'PAUSED',
-      pendingCount: initialPending,
-      conflictCount: initialConflicts,
-    };
+    return { status: 'PAUSED', ...initial };
   }
 
   emit(input.onProgress, 'checking', 'Comprobando conexión y sesión');
 
   if (!(await hasInternet())) {
-    return {
-      status: 'OFFLINE',
-      pendingCount: initialPending,
-      conflictCount: initialConflicts,
-    };
+    return { status: 'OFFLINE', ...initial };
   }
 
   if (!input.sessionToken || !input.scopeKey) {
-    return {
-      status: 'SESSION_EXPIRED',
-      pendingCount: initialPending,
-      conflictCount: initialConflicts,
-    };
+    return { status: 'SESSION_EXPIRED', ...initial };
   }
 
   const lease = await acquireSyncLease(db);
   if (!lease) {
-    return {
-      status: 'BUSY',
-      pendingCount: initialPending,
-      conflictCount: initialConflicts,
-    };
+    return { status: 'BUSY', ...initial };
   }
 
   try {
@@ -196,31 +192,90 @@ export async function runSyncCycle(
       });
     }
 
-    const pendingCount = await countUnresolvedOutbox(db, input.scopeKey);
-    const conflictCount = await countOpenConflicts(db, input.scopeKey);
+    const counts = await currentCounts(db, input.scopeKey);
     emit(input.onProgress, 'complete', 'Sincronización completada');
 
-    if (conflictCount > 0) {
-      return { status: 'CONFLICT', pendingCount, conflictCount };
+    if (counts.conflictCount > 0) {
+      return { status: 'CONFLICT', ...counts };
     }
     if (pushResult.blocked > 0) {
       return {
         status: 'ERROR',
-        pendingCount,
-        conflictCount,
+        ...counts,
         errorCode: 'OUTBOX_BLOCKED',
         errorMessage: `${pushResult.blocked} operación${pushResult.blocked === 1 ? '' : 'es'} requiere${pushResult.blocked === 1 ? '' : 'n'} corrección antes de sincronizar.`,
       };
     }
     return {
-      status: pendingCount > 0 ? 'PENDING' : 'UPDATED',
-      pendingCount,
-      conflictCount,
+      status: counts.pendingCount > 0 ? 'PENDING' : 'UPDATED',
+      ...counts,
     };
   } catch (error) {
-    const pendingCount = await countUnresolvedOutbox(db, input.scopeKey);
-    const conflictCount = await countOpenConflicts(db, input.scopeKey);
-    return errorResult(error, pendingCount, conflictCount);
+    const counts = await currentCounts(db, input.scopeKey);
+    return errorResult(error, counts.pendingCount, counts.conflictCount);
+  } finally {
+    await releaseSyncLease(db, lease.ownerId).catch(() => undefined);
+  }
+}
+
+export async function runMaintenanceDetailRefresh(
+  db: SQLiteDatabase,
+  input: {
+    maintenanceId: string;
+    scopeKey: string;
+    sessionToken: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: SyncProgress) => void;
+  },
+): Promise<SyncCycleResult> {
+  const initial = await currentCounts(db, input.scopeKey);
+
+  emit(input.onProgress, 'checking', 'Comprobando conexión y sesión');
+  if (!(await hasInternet())) return { status: 'OFFLINE', ...initial };
+  if (!input.sessionToken || !input.scopeKey) {
+    return { status: 'SESSION_EXPIRED', ...initial };
+  }
+
+  const maintenanceId = String(input.maintenanceId || '').trim();
+  if (!maintenanceId) {
+    return {
+      status: 'ERROR',
+      ...initial,
+      errorCode: 'MAINTENANCE_ID_REQUIRED',
+      errorMessage: 'No se pudo identificar el mantenimiento.',
+    };
+  }
+
+  const lease = await acquireSyncLease(db);
+  if (!lease) return { status: 'BUSY', ...initial };
+
+  try {
+    emit(input.onProgress, 'detail', 'Actualizando detalle del mantenimiento');
+    const data = await actionRequest<Record<string, unknown>>(
+      'maintenance.get',
+      { maintenanceId },
+      input.sessionToken,
+      { signal: input.signal },
+    );
+    await persistAuthorizedMaintenanceDetail(
+      db,
+      input.scopeKey,
+      data,
+    );
+
+    const counts = await currentCounts(db, input.scopeKey);
+    emit(input.onProgress, 'complete', 'Detalle disponible sin conexión');
+    return {
+      status: counts.conflictCount > 0
+        ? 'CONFLICT'
+        : counts.pendingCount > 0
+          ? 'PENDING'
+          : 'UPDATED',
+      ...counts,
+    };
+  } catch (error) {
+    const counts = await currentCounts(db, input.scopeKey);
+    return errorResult(error, counts.pendingCount, counts.conflictCount);
   } finally {
     await releaseSyncLease(db, lease.ownerId).catch(() => undefined);
   }

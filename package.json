@@ -1,6 +1,6 @@
 {
   "name": "dms-boletas-mantenimientos",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-native-community/datetimepicker": "9.1.0",
     "expo": "~57.0.26",
     "expo-constants": "~57.0.20",
     "expo-crypto": "~57.0.3",

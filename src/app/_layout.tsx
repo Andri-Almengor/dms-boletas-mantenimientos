@@ -19,10 +19,11 @@ export default function RootLayout() {
             screenOptions={{
               headerStyle: { backgroundColor: colors.surfaceCard },
               headerTintColor: colors.text,
+              headerBackTitle: 'Atrás',
               contentStyle: { backgroundColor: colors.surface },
             }}
           >
-            <Stack.Screen name="index" options={{ title: 'Mantenimientos' }} />
+            <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="login" options={{ headerShown: false }} />
             <Stack.Screen
               name="change-password"

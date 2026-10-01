@@ -23,9 +23,7 @@ Aplicación móvil local-first para complementar **DMS Boletas** en Android/iOS,
 - Aislamiento por UsuarioID + huella exacta de permisos.
 - IDs locales estables compatibles con los IDs generados por cliente del backend.
 - Escritura local + outbox en una misma transacción.
-- Dependencias:
-  - mantenimiento → dispositivo;
-  - dispositivo → evidencia.
+- Dependencias mantenimiento → dispositivo → evidencia.
 - Outbox persistente con recuperación de operaciones interrumpidas.
 - Evidencias referenciadas por URI local; no se almacenan fotografías Base64 en SQLite.
 - Estado de `cursor / generation / schemaVersion / cacheScope`.
@@ -33,7 +31,7 @@ Aplicación móvil local-first para complementar **DMS Boletas** en Android/iOS,
 
 ### Etapa 3 — SyncCoordinator ✅
 
-Se implementó un único motor reutilizable:
+Motor único:
 
 ```
 PULL
@@ -45,41 +43,51 @@ PUSH OUTBOX
 PULL FINAL
 ```
 
-Incluye:
+Incluye `sync.delta`, schema 2, snapshots, cursor/generation/cacheScope, lease SQLite, outbox con dependencias, `__syncBase`, conflictos, subida de evidencias y botón manual 24/7.
 
-- `sync.delta` con `SYNC_SCHEMA_VERSION=2`.
-- Snapshot inicial y recuperación cuando cambia `generation`, `schemaVersion` o `cacheScope`.
-- Paginación de snapshots de hasta 1000 filas por solicitud.
-- Recursos incrementales reutilizados del backend:
-  - mantenimientos;
-  - clientes;
-  - ubicaciones;
-  - ubicaciones de equipo;
-  - contactos;
-  - categorías;
-  - tipos de dispositivo;
-  - fabricantes;
-  - modelos;
-  - tipos de falla;
-  - relaciones tipo/fabricante.
-- Refresco de usuarios asignables, preguntas de mantenimiento y configuración de mantenimiento.
-- PULL que no sobreescribe registros con cambios locales pendientes.
-- `__syncBase` compatible con la política de conflictos de la web.
-- Manejo de `SYNC_CONFLICT` con persistencia local para revisión.
-- Errores 4xx determinísticos pasan a `BLOCKED`; no se esconden mediante retries.
-- 408, 429, errores de red y 5xx quedan preparados para reintento posterior.
-- Lease/mutex persistente en SQLite para impedir ciclos simultáneos.
-- Upload de evidencia pendiente leyendo el archivo local solo al momento de enviar.
-- Botón **Sincronizar ahora** disponible 24/7.
-- Estados visuales:
-  - actualizado;
-  - pendiente;
-  - sin conexión;
-  - fuera de horario;
-  - error;
-  - conflicto;
-  - sesión expirada.
-- Fuera de 07:00–17:00 se muestra que la sincronización automática está pausada, pero el botón manual sigue disponible.
+### Etapa 4 — Mantenimientos offline ✅
+
+La navegación operativa ya consume SQLite como fuente inmediata.
+
+#### Lista
+
+- Pestañas **Pendientes / Finalizados**.
+- Compatibilidad con `FINALIZADO` y `FINALIZADA`.
+- Búsqueda por título, cliente, responsable, descripción y ubicación.
+- Filtros por cliente y rango de fechas.
+- Selector de fecha nativo Android/iOS.
+- Paginación local de 40 registros.
+- `COUNT(*) OVER()` para total sin cargar toda la tabla.
+- Conteo de dispositivos en batch mediante CTE.
+- La pantalla no consulta el backend para pintar la lista.
+
+#### Detalle
+
+Cada mantenimiento distingue entre:
+
+- **resumen descargado**;
+- **detalle completo disponible sin conexión**.
+
+No se muestra falsamente “0 dispositivos” si todavía no se descargó el detalle.
+
+El usuario puede usar **Descargar detalle / Actualizar detalle**. Es una acción manual y funciona fuera del horario automático.
+
+La respuesta autorizada de `maintenance.get` se persiste en SQLite sin pisar:
+
+- mantenimiento con cambios locales;
+- dispositivos con outbox pendiente;
+- evidencias con outbox pendiente.
+
+#### Dispositivos
+
+- Cada dispositivo abre en una ruta independiente.
+- Navegación **Anterior / Siguiente** sin acumular pantallas en el stack.
+- Fabricante, modelo, serie, estado, funcionamiento, uso y observación.
+- Galería de evidencias.
+- Evidencias con archivo local pueden ampliarse a pantalla completa.
+- Evidencias que todavía solo existen en Drive se muestran como remotas; no se intenta acceder directamente a Drive ni saltarse el endpoint protegido.
+
+La descarga/caché segura de imágenes remotas se completará en la etapa específica de evidencias.
 
 ## Política de sincronización
 
@@ -101,23 +109,17 @@ Manual:
 24 horas
 ```
 
-En la Etapa 3 **todavía no existen triggers automáticos**. No se registra `expo-background-task`, no se escucha foreground/red para ejecutar sync y no existe polling. El único disparador conectado es **Sincronizar ahora**.
+Todavía **no existen triggers automáticos**. No se registra `expo-background-task`, no se sincroniza por foreground/red/cambio local y no existe polling.
 
-Esto es intencional: primero se completa y prueba el motor; los disparadores automáticos se conectarán en una etapa posterior reutilizando este mismo `SyncCoordinator`.
+El botón **Sincronizar ahora** y la actualización manual de un detalle son las únicas acciones de red conectadas.
 
 ## Conflictos
 
-Las ediciones de registros provenientes del servidor conservan una copia `__syncBase`.
+Las ediciones de registros provenientes del servidor conservan `__syncBase`.
 
-Si el servidor cambió el mismo campo mientras el técnico trabajaba localmente, el backend existente responde `SYNC_CONFLICT`. La app guarda:
+Si el servidor cambió el mismo campo mientras el técnico trabajaba localmente, el backend existente responde `SYNC_CONFLICT`. La app conserva versión base, local, remota y campos en conflicto.
 
-- versión base;
-- versión local;
-- versión remota;
-- campos en conflicto;
-- mantenimiento relacionado.
-
-No se fuerza automáticamente la versión local ni la remota.
+No se fuerza automáticamente KEEP_LOCAL ni USE_SERVER.
 
 ## Evidencias
 
@@ -137,9 +139,9 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 1. **Fundación móvil** ✅
 2. **Persistencia operativa local** ✅
 3. **SyncCoordinator** ✅
-4. **Mantenimientos offline** — listado, detalle, filtros, navegación y snapshots locales.
+4. **Mantenimientos offline** ✅
 5. **Edición offline** — dispositivos, proyecto/checklists, observaciones y relaciones configurables.
-6. **Evidencias** — cámara/galería, almacenamiento persistente, ANTES/DESPUÉS y experiencia de upload.
+6. **Evidencias** — cámara/galería, almacenamiento persistente, ANTES/DESPUÉS y caché segura de medios remotos.
 7. **Firmas y finalización** — firma, `FINALIZE_PENDING`, dependencias y conflictos.
 8. **Triggers automáticos** — foreground, recuperación de red, cambio local y `expo-background-task`, limitados a 07:00–17:00.
 9. **Hardening** — concurrencia, recuperación, rendimiento, pruebas y consistencia web/móvil.
@@ -173,7 +175,7 @@ Nunca incluir API keys, `DATABASE_URL`, tokens de sesión, credenciales de Googl
 
 Guardar localmente y sincronizar son conceptos separados.
 
-- SQLite debe permitir trabajar independientemente de Internet y de la hora.
+- SQLite permite trabajar independientemente de Internet y de la hora.
 - La sincronización automática solo podrá ejecutarse entre 07:00 y 17:00.
 - La sincronización manual está disponible las 24 horas.
 - Fuera de horario no existe error: los cambios permanecen pendientes localmente.

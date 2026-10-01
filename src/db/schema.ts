@@ -1,4 +1,4 @@
-export const LOCAL_SCHEMA_VERSION = 3;
+export const LOCAL_SCHEMA_VERSION = 4;
 
 export type LocalMigration = {
   version: number;
@@ -246,8 +246,28 @@ CREATE INDEX IF NOT EXISTS ix_sync_runtime_lock_expiry
   ON sync_runtime_lock (expires_at);
 `;
 
+const MIGRATION_4 = String.raw`
+CREATE TABLE IF NOT EXISTS local_maintenance_detail_state (
+  scope_key TEXT NOT NULL,
+  maintenance_id TEXT NOT NULL,
+  complete INTEGER NOT NULL DEFAULT 0 CHECK (complete IN (0, 1)),
+  downloaded_at TEXT NOT NULL DEFAULT '',
+  server_updated_at TEXT NOT NULL DEFAULT '',
+  device_count INTEGER NOT NULL DEFAULT 0,
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope_key, maintenance_id),
+  FOREIGN KEY (scope_key, maintenance_id)
+    REFERENCES local_maintenances (scope_key, maintenance_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_local_maintenance_detail_scope_complete
+  ON local_maintenance_detail_state (scope_key, complete, downloaded_at DESC);
+`;
+
 export const LOCAL_MIGRATIONS: LocalMigration[] = [
   { version: 1, sql: MIGRATION_1 },
   { version: 2, sql: MIGRATION_2 },
   { version: 3, sql: MIGRATION_3 },
+  { version: 4, sql: MIGRATION_4 },
 ];

@@ -8,6 +8,10 @@ import {
   maintenanceSyncBase,
   withSyncBase,
 } from '@/sync/syncBase';
+import {
+  MaintenanceListFilters,
+  MaintenanceStatus,
+} from '@/features/maintenance/maintenanceListDomain';
 import { createLocalId } from '@/utils/localId';
 
 export type MaintenanceRecord = Record<string, unknown>;
@@ -219,25 +223,142 @@ export async function getLocalMaintenance(
     : null;
 }
 
+export async function listLocalMaintenanceClients(
+  db: SQLiteDatabase,
+  scopeKey: string,
+) {
+  const rows = await db.getAllAsync<{ client_name: string }>(
+    `SELECT DISTINCT client_name
+     FROM local_maintenances
+     WHERE scope_key = ? AND tombstone = 0 AND TRIM(client_name) <> ''
+     ORDER BY client_name COLLATE NOCASE ASC`,
+    scopeKey,
+  );
+  return rows.map((row) => row.client_name).filter(Boolean);
+}
+
+export async function listLocalMaintenancesPage(
+  db: SQLiteDatabase,
+  input: {
+    scopeKey: string;
+    status: MaintenanceStatus;
+    search?: string;
+    filters?: MaintenanceListFilters;
+    page?: number;
+    pageSize?: number;
+  },
+) {
+  const page = Math.max(1, Number(input.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Number(input.pageSize || 40)));
+  const offset = (page - 1) * pageSize;
+  const search = String(input.search || '').trim().toLowerCase();
+  const filters = input.filters || { client: '', dateFrom: '', dateTo: '' };
+  const params: (string | number)[] = [input.scopeKey, input.status];
+  const where = [
+    'm.scope_key = ?',
+    'm.tombstone = 0',
+    `CASE WHEN UPPER(m.status) IN ('FINALIZADO','FINALIZADA') THEN 'FINALIZADO' ELSE UPPER(m.status) END = ?`,
+  ];
+
+  if (filters.client) {
+    where.push('m.client_name = ?');
+    params.push(filters.client);
+  }
+  if (filters.dateFrom) {
+    where.push('SUBSTR(m.maintenance_date, 1, 10) >= ?');
+    params.push(filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    where.push('SUBSTR(m.maintenance_date, 1, 10) <= ?');
+    params.push(filters.dateTo);
+  }
+  if (search) {
+    where.push(`(
+      LOWER(m.title) LIKE ?
+      OR LOWER(m.client_name) LIKE ?
+      OR LOWER(m.location_name) LIKE ?
+      OR LOWER(m.payload_json) LIKE ?
+    )`);
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
+  }
+
+  const rows = await db.getAllAsync<{
+    payload_json: string;
+    sync_status: string;
+    detail_complete: number;
+    detail_downloaded_at: string;
+    local_device_count: number;
+    filtered_total: number;
+  }>(
+    `WITH device_counts AS (
+       SELECT scope_key, maintenance_id, COUNT(*) AS local_device_count
+       FROM local_maintenance_devices
+       WHERE scope_key = ? AND tombstone = 0
+       GROUP BY scope_key, maintenance_id
+     ),
+     filtered AS (
+       SELECT
+         m.payload_json,
+         m.sync_status,
+         COALESCE(ds.complete, 0) AS detail_complete,
+         COALESCE(ds.downloaded_at, '') AS detail_downloaded_at,
+         COALESCE(dc.local_device_count, 0) AS local_device_count
+       FROM local_maintenances m
+       LEFT JOIN local_maintenance_detail_state ds
+         ON ds.scope_key = m.scope_key AND ds.maintenance_id = m.maintenance_id
+       LEFT JOIN device_counts dc
+         ON dc.scope_key = m.scope_key AND dc.maintenance_id = m.maintenance_id
+       WHERE ${where.join(' AND ')}
+     )
+     SELECT *, COUNT(*) OVER() AS filtered_total
+     FROM filtered
+     ORDER BY
+       SUBSTR(COALESCE(JSON_EXTRACT(payload_json, '$.Fecha'), ''), 1, 10) DESC,
+       COALESCE(JSON_EXTRACT(payload_json, '$.FechaCreacion'), '') DESC
+     LIMIT ? OFFSET ?`,
+    input.scopeKey,
+    ...params,
+    pageSize,
+    offset,
+  );
+
+  const items = rows.map((row) => {
+    const record = parseJsonObject<MaintenanceRecord>(row.payload_json);
+    return {
+      ...record,
+      DispositivosRegistrados: row.detail_complete
+        ? row.local_device_count
+        : Number(record.DispositivosRegistrados || record.CantidadDispositivos || 0),
+      __local: {
+        syncStatus: row.sync_status,
+        detailComplete: Boolean(row.detail_complete),
+        detailDownloadedAt: row.detail_downloaded_at,
+      },
+    };
+  });
+
+  const total = rows.length ? Number(rows[0].filtered_total || 0) : 0;
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    hasMore: offset + items.length < total,
+  };
+}
+
 export async function listLocalMaintenances(
   db: SQLiteDatabase,
   scopeKey: string,
   status = '',
 ) {
-  const rows = status
-    ? await db.getAllAsync<{ payload_json: string }>(
-      `SELECT payload_json FROM local_maintenances
-       WHERE scope_key = ? AND status = ? AND tombstone = 0
-       ORDER BY maintenance_date DESC, local_updated_at DESC`,
-      scopeKey,
-      normalizeStatus(status),
-    )
-    : await db.getAllAsync<{ payload_json: string }>(
-      `SELECT payload_json FROM local_maintenances
-       WHERE scope_key = ? AND tombstone = 0
-       ORDER BY maintenance_date DESC, local_updated_at DESC`,
-      scopeKey,
-    );
-
-  return rows.map((row) => parseJsonObject<MaintenanceRecord>(row.payload_json));
+  const normalizedStatus = normalizeStatus(status || 'PENDIENTE') as MaintenanceStatus;
+  const first = await listLocalMaintenancesPage(db, {
+    scopeKey,
+    status: normalizedStatus,
+    page: 1,
+    pageSize: 100,
+  });
+  return first.items;
 }
