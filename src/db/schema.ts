@@ -1,4 +1,4 @@
-export const LOCAL_SCHEMA_VERSION = 4;
+export const LOCAL_SCHEMA_VERSION = 5;
 
 export type LocalMigration = {
   version: number;
@@ -265,9 +265,32 @@ CREATE INDEX IF NOT EXISTS ix_local_maintenance_detail_scope_complete
   ON local_maintenance_detail_state (scope_key, complete, downloaded_at DESC);
 `;
 
+const MIGRATION_5 = String.raw`
+CREATE TABLE IF NOT EXISTS local_maintenance_signatures (
+  scope_key TEXT NOT NULL,
+  maintenance_id TEXT NOT NULL,
+  local_file_id TEXT NOT NULL DEFAULT '',
+  mime_type TEXT NOT NULL DEFAULT 'image/png',
+  sync_status TEXT NOT NULL DEFAULT 'PENDING',
+  server_file_id TEXT NOT NULL DEFAULT '',
+  server_url TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL DEFAULT '',
+  signed_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope_key, maintenance_id),
+  FOREIGN KEY (scope_key, maintenance_id)
+    REFERENCES local_maintenances (scope_key, maintenance_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_local_maintenance_signatures_scope_sync
+  ON local_maintenance_signatures (scope_key, sync_status, updated_at DESC);
+`;
+
 export const LOCAL_MIGRATIONS: LocalMigration[] = [
   { version: 1, sql: MIGRATION_1 },
   { version: 2, sql: MIGRATION_2 },
   { version: 3, sql: MIGRATION_3 },
   { version: 4, sql: MIGRATION_4 },
+  { version: 5, sql: MIGRATION_5 },
 ];

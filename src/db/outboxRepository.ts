@@ -193,6 +193,23 @@ export async function listReadyOutboxOperations(
          o.depends_on_operation_id = ''
          OR dependency.status = 'SUCCEEDED'
        )
+       AND (
+         o.operation_kind <> 'FINALIZE_PENDING'
+         OR NOT EXISTS (
+           SELECT 1
+           FROM sync_outbox blocker
+           WHERE blocker.scope_key = o.scope_key
+             AND blocker.aggregate_id = o.aggregate_id
+             AND blocker.operation_id <> o.operation_id
+             AND blocker.status IN (
+               'PENDING',
+               'IN_FLIGHT',
+               'FAILED',
+               'CONFLICT',
+               'BLOCKED'
+             )
+         )
+       )
      ORDER BY o.priority ASC, o.row_id ASC
      LIMIT ?`,
     scopeKey,
