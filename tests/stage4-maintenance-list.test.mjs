@@ -9,7 +9,7 @@ const screen = await readFile(new URL('../src/app/index.tsx', import.meta.url), 
 const filters = await readFile(new URL('../src/components/maintenance/MaintenanceFilterModal.tsx', import.meta.url), 'utf8');
 
 test('Etapa 4 registra estado explícito de detalle descargado', () => {
-  assert.match(schema, /LOCAL_SCHEMA_VERSION = 4/);
+  assert.match(schema, /\{ version: 4, sql: MIGRATION_4 \}/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS local_maintenance_detail_state/);
   assert.match(schema, /complete INTEGER NOT NULL DEFAULT 0/);
   assert.match(schema, /device_count INTEGER NOT NULL DEFAULT 0/);
