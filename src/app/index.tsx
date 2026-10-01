@@ -60,7 +60,6 @@ export default function MaintenanceListScreen() {
     user,
     loading: authLoading,
     dataScope,
-    permissions,
     logout,
   } = useAuth();
   const {
