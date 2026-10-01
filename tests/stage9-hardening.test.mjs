@@ -13,7 +13,7 @@ const files = await readFile(new URL('../src/db/localFileRepository.ts', import.
 const storage = await readFile(new URL('../src/services/maintenanceEvidenceStorage.ts', import.meta.url), 'utf8');
 
 test('Etapa 9 agrega índices para barrera por agregado y housekeeping', () => {
-  assert.match(schema, /LOCAL_SCHEMA_VERSION = 6/);
+  assert.match(schema, /\{ version: 6, sql: MIGRATION_6 \}/);
   assert.match(schema, /ix_sync_outbox_scope_aggregate/);
   assert.match(schema, /scope_key, aggregate_id, status, row_id/);
   assert.match(schema, /ix_local_files_scope_updated/);
