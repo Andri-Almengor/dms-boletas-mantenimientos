@@ -110,3 +110,65 @@ export async function deleteLocalFileRecord(
   );
   return existing;
 }
+
+
+export type OrphanLocalFile = {
+  file_id: string;
+  local_uri: string;
+};
+
+export async function listOrphanedLocalFiles(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  olderThanIso: string,
+  limit = 100,
+) {
+  return db.getAllAsync<OrphanLocalFile>(
+    `SELECT f.file_id, f.local_uri
+     FROM local_files f
+     WHERE f.scope_key = ?
+       AND f.updated_at < ?
+       AND NOT EXISTS (
+         SELECT 1
+         FROM local_maintenance_evidence e
+         WHERE e.scope_key = f.scope_key
+           AND e.local_file_id = f.file_id
+           AND e.tombstone = 0
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM local_maintenance_signatures s
+         WHERE s.scope_key = f.scope_key
+           AND s.local_file_id = f.file_id
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM sync_outbox o
+         WHERE o.scope_key = f.scope_key
+           AND o.local_file_id = f.file_id
+           AND o.status IN ('PENDING','IN_FLIGHT','FAILED','CONFLICT','BLOCKED')
+       )
+     ORDER BY f.updated_at ASC
+     LIMIT ?`,
+    scopeKey,
+    olderThanIso,
+    Math.max(1, Math.min(500, Number(limit || 100))),
+  );
+}
+
+export async function deleteLocalFileRecords(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  fileIds: string[],
+) {
+  const ids = [...new Set(fileIds.map(String).filter(Boolean))];
+  if (!ids.length) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const result = await db.runAsync(
+    `DELETE FROM local_files
+     WHERE scope_key = ? AND file_id IN (${placeholders})`,
+    scopeKey,
+    ...ids,
+  );
+  return Number(result.changes || 0);
+}
