@@ -47,11 +47,12 @@ test('las rutas de detalle dejan de mostrar datos al perder sesión o scope', ()
   assert.match(deviceScreen, /setDetail\(null\)/);
 });
 
-test('dispositivo tiene ruta dedicada, anterior\/siguiente y galería local ampliable', () => {
+test('dispositivo tiene ruta dedicada, anterior/siguiente y galería local ampliable', () => {
   assert.match(deviceScreen, /previousDeviceId/);
   assert.match(deviceScreen, /nextDeviceId/);
   assert.match(deviceScreen, /router\.replace/);
-  assert.match(deviceScreen, /<Modal/);
-  assert.match(deviceScreen, /localUri/);
-  assert.match(deviceScreen, /Imagen en servidor/);
+  assert.match(deviceScreen, /MaintenanceEvidenceManager/);
+  assert.match(evidenceManager, /localUri/);
+  assert.match(evidenceManager, /EvidenceLightbox/);
+  assert.match(evidenceLightbox, /<Modal/);
 });
