@@ -1,4 +1,5 @@
 import { actionRequest, ActionApiError } from '@/api/actionClient';
+import { automaticSyncWindowClosedError } from '@/sync/syncPolicy';
 import {
   hasUnresolvedEntityOperations,
   listUnresolvedEntityOperations,
@@ -61,14 +62,22 @@ function totalFrom(data: unknown, fallback: number) {
   return Number.isFinite(total) ? total : fallback;
 }
 
+function assertNetworkUnitAllowed(shouldContinue?: () => boolean) {
+  if (shouldContinue && !shouldContinue()) {
+    throw automaticSyncWindowClosedError();
+  }
+}
+
 async function fetchAllPages(
   route: string,
   sessionToken: string,
   signal?: AbortSignal,
+  shouldContinue?: () => boolean,
 ) {
   const records: RecordLike[] = [];
 
   for (let page = 1; page <= 100; page += 1) {
+    assertNetworkUnitAllowed(shouldContinue);
     const data = await actionRequest<unknown>(
       route,
       { page, pageSize: SNAPSHOT_PAGE_SIZE, activo: true },
@@ -228,7 +237,9 @@ async function probeResource(
   config: DeltaResourceConfig,
   sessionToken: string,
   signal?: AbortSignal,
+  shouldContinue?: () => boolean,
 ) {
+  assertNetworkUnitAllowed(shouldContinue);
   return actionRequest<SyncDelta>(
     'sync.delta',
     {
@@ -249,8 +260,14 @@ async function replaceSnapshot(
   descriptor: SyncDelta,
   sessionToken: string,
   signal?: AbortSignal,
+  shouldContinue?: () => boolean,
 ) {
-  const records = await fetchAllPages(config.route, sessionToken, signal);
+  const records = await fetchAllPages(
+    config.route,
+    sessionToken,
+    signal,
+    shouldContinue,
+  );
   if (config.resource === 'maintenance') {
     await applyMaintenanceSnapshot(db, scopeKey, records);
   } else {
@@ -291,15 +308,35 @@ export async function synchronizeDeltaResource(
     config: DeltaResourceConfig;
     sessionToken: string;
     signal?: AbortSignal;
+    shouldContinue?: () => boolean;
   },
 ) {
-  const { scopeKey, config, sessionToken, signal } = input;
+  const {
+    scopeKey,
+    config,
+    sessionToken,
+    signal,
+    shouldContinue,
+  } = input;
   let state = await getSyncState(db, scopeKey, config.resource);
 
   if (!state?.generation || !state.cache_scope || state.full_snapshot_required) {
-    const probe = await probeResource(config, sessionToken, signal);
+    const probe = await probeResource(
+      config,
+      sessionToken,
+      signal,
+      shouldContinue,
+    );
     validateDelta(probe);
-    await replaceSnapshot(db, scopeKey, config, probe, sessionToken, signal);
+    await replaceSnapshot(
+      db,
+      scopeKey,
+      config,
+      probe,
+      sessionToken,
+      signal,
+      shouldContinue,
+    );
     state = await getSyncState(db, scopeKey, config.resource);
   }
 
@@ -307,6 +344,7 @@ export async function synchronizeDeltaResource(
 
   let changed = 0;
   for (let page = 0; page < 20; page += 1) {
+    assertNetworkUnitAllowed(shouldContinue);
     const delta = await actionRequest<SyncDelta>(
       'sync.delta',
       {
@@ -323,7 +361,15 @@ export async function synchronizeDeltaResource(
     validateDelta(delta);
 
     if (delta.fullSnapshotRequired) {
-      await replaceSnapshot(db, scopeKey, config, delta, sessionToken, signal);
+      await replaceSnapshot(
+        db,
+        scopeKey,
+        config,
+        delta,
+        sessionToken,
+        signal,
+        shouldContinue,
+      );
       state = await getSyncState(db, scopeKey, config.resource);
       if (!state) break;
       continue;
@@ -361,12 +407,14 @@ export async function refreshStaticResources(
     scopeKey: string;
     sessionToken: string;
     signal?: AbortSignal;
+    shouldContinue?: () => boolean;
   },
 ) {
   const results: { resource: string; count: number; skipped?: boolean }[] = [];
 
   for (const config of STATIC_RESOURCES) {
     try {
+      assertNetworkUnitAllowed(input.shouldContinue);
       const data = await actionRequest<unknown>(
         config.route,
         { page: 1, pageSize: SNAPSHOT_PAGE_SIZE, activo: true },
@@ -386,6 +434,7 @@ export async function refreshStaticResources(
   }
 
   try {
+    assertNetworkUnitAllowed(input.shouldContinue);
     const config = await actionRequest<RecordLike>(
       'maintenance.config',
       {},
