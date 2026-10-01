@@ -504,3 +504,28 @@ Flujo recomendado:
 10. sincronizar automáticamente entre 07:00 y 17:00 o manualmente cuando se necesite.
 
 No se crea mantenimiento, no se firma y no se finaliza desde el móvil. Esas acciones permanecen en DMS Boletas web.
+
+
+## Alcance operativo móvil
+
+La app móvil se mantiene deliberadamente enfocada en ejecución de campo sobre mantenimientos ya creados.
+
+Exclusivo de la app web:
+
+- crear un mantenimiento;
+- firmar un mantenimiento;
+- finalizar un mantenimiento.
+
+La app móvil sí permite, respetando permisos y estados existentes:
+
+- consultar mantenimientos;
+- descargar su detalle para trabajo offline;
+- editar datos permitidos;
+- crear ubicaciones de equipo mediante la misma ruta operacional existente;
+- agregar/editar/eliminar dispositivos;
+- completar preguntas y checklist;
+- tomar/seleccionar evidencias dentro del mismo formulario de alta del dispositivo;
+- guardar dispositivo + evidencias en una sola transacción local;
+- usar **Guardar y agregar otro** para altas consecutivas.
+
+El flujo de alta móvil conserva la estructura del editor web: identificación/ubicación → fecha y grupo de trabajo → checklist/preguntas → observaciones → evidencias. Al usar **Guardar y agregar otro**, se conserva ubicación de equipo, fecha y técnicos como contexto de trabajo, mientras se limpian los datos propios del dispositivo y sus evidencias.
