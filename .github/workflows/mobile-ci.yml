@@ -1,6 +1,9 @@
 name: Mobile CI
 
 on:
+  push:
+    branches:
+      - feat/stage-1-mobile-foundation
   pull_request:
     branches:
       - main
