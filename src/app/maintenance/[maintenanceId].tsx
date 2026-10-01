@@ -1,5 +1,4 @@
 import { DeviceCard } from '@/components/maintenance/DeviceCard';
-import { MaintenanceCompletionCard } from '@/components/maintenance/MaintenanceCompletionCard';
 import {
   LocalMaintenanceDetail,
   readLocalMaintenanceDetail,
@@ -68,7 +67,6 @@ export default function MaintenanceDetailScreen() {
   } = useAuth();
   const {
     refreshMaintenanceDetail,
-    refreshStatus,
     syncing,
     lastSuccessAt,
     message: syncMessage,
@@ -239,20 +237,6 @@ export default function MaintenanceDetailScreen() {
                   </Pressable>
                 ) : null}
               </View>
-            ) : null}
-
-            {dataScope ? (
-              <MaintenanceCompletionCard
-                maintenanceId={maintenanceId}
-                maintenance={maintenance}
-                scopeKey={dataScope}
-                permissions={permissions}
-                syncing={syncing}
-                onChanged={async () => {
-                  await load();
-                  await refreshStatus();
-                }}
-              />
             ) : null}
 
             <View style={styles.summaryGrid}>
