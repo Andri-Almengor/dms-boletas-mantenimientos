@@ -95,9 +95,10 @@ La edición ya funciona sin depender de Internet. **Guardar** siempre escribe pr
 
 #### Mantenimientos
 
-- Un único `MaintenanceEditorScreen` sirve para **Nuevo** y **Editar**.
-- Reutiliza los permisos existentes:
-  - `MANTENIMIENTOS_CREAR` / `MANTENIMIENTOS_GESTIONAR` / `BOLETAS_CREAR`;
+La app móvil trabaja únicamente sobre mantenimientos ya creados. **Crear mantenimiento es exclusivo de la aplicación web**.
+
+- `MaintenanceEditorScreen` queda accesible únicamente para editar un mantenimiento existente.
+- Reutiliza los permisos existentes de edición:
   - `MANTENIMIENTOS_EDITAR` / `MANTENIMIENTOS_GESTIONAR` / `BOLETAS_EDITAR`;
   - `USUARIOS_GESTIONAR` conserva el comportamiento administrativo existente.
 - Cliente, ubicación y responsables se leen de catálogos SQLite.
@@ -167,7 +168,9 @@ Para dispositivos únicamente locales, el alta pendiente se cancela localmente.
 
 Si un `CREATE` ya está `IN_FLIGHT`, no se borra a ciegas: el `DELETE` queda dependiente de ese alta. La respuesta del `CREATE` tampoco vuelve a materializar el dispositivo porque el SyncCoordinator detecta el trabajo local más nuevo.
 
-Las evidencias todavía no se editan en este formulario. Cámara, galería, ANTES/DESPUÉS y gestión completa de archivos corresponden a la Etapa 6.
+Al **agregar un dispositivo**, el mismo formulario incluye evidencias antes de guardar: cámara, galería, selección múltiple y video. Ubicación → dispositivo → evidencias se escriben en una sola transacción SQLite y la outbox conserva ese orden al sincronizar.
+
+La ubicación del equipo sigue el flujo de la web: se muestran las ubicaciones de equipo de las sedes del mismo cliente y, con los permisos operativos existentes, puede prepararse una ubicación nueva indicando ubicación principal, nombre y descripción.
 
 ### Etapa 6 — Evidencias offline ✅
 
@@ -260,25 +263,20 @@ Las imágenes se amplían en un lightbox compartido.
 
 Los videos locales/caché se reproducen con `expo-video` y controles nativos.
 
-### Etapa 7 — Firmas y finalización offline ✅
+### Etapa 7 — Alcance móvil ajustado ✅
 
-La firma general puede dibujarse con dedo, stylus o mouse, o cargarse como imagen PNG/JPEG. El archivo se conserva primero en almacenamiento persistente y su referencia se registra en SQLite; el Base64 solo se genera o lee al sincronizar.
+La **firma y la finalización son exclusivas de la aplicación web**.
 
-La app reutiliza el flujo existente del backend:
+La app móvil no muestra ni ejecuta:
 
-- `maintenance.signature.link`;
-- `maintenance.signature.public.submit`;
-- `maintenance.finalize`.
+- captura o carga de firma;
+- `maintenance.signature.*`;
+- solicitud de finalización;
+- `FINALIZE_PENDING`.
 
-No se crearon rutas ni permisos nuevos. La firma respeta los permisos de lectura de mantenimiento existentes y la finalización conserva `USUARIOS_GESTIONAR` como permiso autoritativo del backend.
+La migración SQLite local v7 elimina intenciones móviles de firma/finalización que hubieran quedado pendientes de builds anteriores, sin modificar el estado autoritativo del mantenimiento en el servidor.
 
-La firma continúa siendo **opcional** para finalizar. Si no existe, el backend conserva su política actual y genera las boletas/PDF sin firma. Si existe una firma local pendiente, esta debe sincronizarse antes del cierre.
-
-La solicitud de cierre se registra localmente como `FINALIZE_PENDING`; no cambia `Estado` a `FINALIZADO` de forma optimista. La outbox aplica una barrera por mantenimiento: el cierre no se ejecuta mientras exista una edición, evidencia, firma o conflicto previo sin resolver para ese mismo mantenimiento.
-
-Cuando la solicitud llega a `maintenance.finalize`, el backend sigue siendo la fuente de verdad y devuelve el estado de finalización escalonada. El `PULL` final conserva la reconciliación autoritativa.
-
-Guardar firma o solicitar finalización **no inicia sincronización automática**. Fuera de 07:00–17:00 todo queda local; el botón manual puede sincronizar 24/7.
+La tabla histórica de firma se conserva únicamente por compatibilidad de migraciones/actualizaciones, pero no existe una superficie móvil que cree nuevas firmas.
 
 ### Etapa 8 — Triggers automáticos ✅
 
@@ -308,7 +306,7 @@ Se reforzó la arquitectura existente sin introducir un segundo motor de sincron
 
 - foreground, background y sincronización manual siguen compitiendo por el mismo lease SQLite;
 - el lease se renueva antes de cada nueva unidad de red;
-- snapshots, `sync.delta`, firma y cada chunk de evidencia mantienen vivo el lease durante operaciones largas;
+- snapshots, `sync.delta` y cada chunk de evidencia mantienen vivo el lease durante operaciones largas;
 - antes de aplicar un éxito remoto localmente se comprueba nuevamente que la instancia conserva el lease;
 - si aparece `SYNC_LOCK_LOST`, la instancia vieja deja la operación `IN_FLIGHT` sin mutarla y el nuevo propietario la recupera mediante el flujo existente.
 
@@ -486,3 +484,23 @@ Se corrigieron dos diferencias respecto al cliente web existente:
 2. Si `sync.delta` está deshabilitado, marcado `sync_unsafe` o no puede inicializarse, el móvil ahora utiliza el mismo principio que la web: descarga el snapshot desde la ruta autoritativa (`maintenance.list`) y mantiene SQLite utilizable offline, sin inventar `generation` ni `cacheScope`.
 
 No se ampliaron permisos. El fallback sigue pasando por `POST /api/action` y las validaciones del backend.
+
+
+## Flujo móvil operativo simplificado
+
+La aplicación móvil está orientada a ejecutar trabajo de campo sobre mantenimientos existentes.
+
+Flujo recomendado:
+
+1. sincronizar los mantenimientos asignados/existentes;
+2. abrir un mantenimiento;
+3. descargar su detalle cuando todavía no esté disponible localmente;
+4. agregar o editar dispositivos;
+5. seleccionar o preparar la ubicación del equipo;
+6. completar identificación, fecha, técnicos, checklist/preguntas y observaciones;
+7. tomar fotos o videos **dentro del mismo formulario de nuevo dispositivo**;
+8. guardar una sola vez;
+9. continuar trabajando offline;
+10. sincronizar automáticamente entre 07:00 y 17:00 o manualmente cuando se necesite.
+
+No se crea mantenimiento, no se firma y no se finaliza desde el móvil. Esas acciones permanecen en DMS Boletas web.
