@@ -6,7 +6,9 @@ import {
 } from '@/db/evidenceRepository';
 import {
   deleteLocalFileRecord,
+  deleteLocalFileRecords,
   getLocalFile,
+  listOrphanedLocalFiles,
   registerLocalFile,
 } from '@/db/localFileRepository';
 import { createLocalId } from '@/utils/localId';
@@ -325,4 +327,47 @@ export async function discardRegisteredEvidenceFile(
     ).catch(() => null);
   }
   await removeLocalEvidenceFile(uri);
+}
+
+
+const ORPHAN_FILE_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+export async function cleanupOrphanedMaintenanceFiles(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  now = Date.now(),
+) {
+  const olderThan = new Date(
+    now - ORPHAN_FILE_MIN_AGE_MS,
+  ).toISOString();
+  const candidates = await listOrphanedLocalFiles(
+    db,
+    scopeKey,
+    olderThan,
+    100,
+  );
+
+  const deletedIds: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      await FileSystem.deleteAsync(
+        candidate.local_uri,
+        { idempotent: true },
+      );
+      deletedIds.push(candidate.file_id);
+    } catch {
+      // Si el SO no permite borrar el archivo, conservamos el registro para
+      // reintentar en otro ciclo en lugar de perder trazabilidad local.
+    }
+  }
+
+  if (deletedIds.length) {
+    await deleteLocalFileRecords(
+      db,
+      scopeKey,
+      deletedIds,
+    );
+  }
+
+  return deletedIds.length;
 }
