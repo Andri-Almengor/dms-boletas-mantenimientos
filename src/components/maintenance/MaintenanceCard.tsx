@@ -110,7 +110,7 @@ export function MaintenanceCard({ item, onPress }: Props) {
               <View
                 style={[
                   styles.progressFill,
-                  { width: `${progress}%` },
+                  { width: `${progress}%` as `${number}%` },
                 ]}
               />
             </View>
