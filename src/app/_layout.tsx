@@ -1,0 +1,33 @@
+import { AuthProvider } from '@/auth/AuthProvider';
+import { initializeDatabase } from '@/db/database';
+import { colors } from '@/theme/tokens';
+import { Stack } from 'expo-router';
+import { SQLiteProvider } from 'expo-sqlite';
+import { StatusBar } from 'expo-status-bar';
+
+export default function RootLayout() {
+  return (
+    <SQLiteProvider
+      databaseName="dms-boletas-mantenimientos.db"
+      onInit={initializeDatabase}
+    >
+      <AuthProvider>
+        <StatusBar style="auto" />
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: colors.surfaceCard },
+            headerTintColor: colors.text,
+            contentStyle: { backgroundColor: colors.surface },
+          }}
+        >
+          <Stack.Screen name="index" options={{ title: 'Mantenimientos' }} />
+          <Stack.Screen name="login" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="change-password"
+            options={{ title: 'Cambiar contraseña' }}
+          />
+        </Stack>
+      </AuthProvider>
+    </SQLiteProvider>
+  );
+}

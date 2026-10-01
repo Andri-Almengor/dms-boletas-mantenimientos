@@ -1,0 +1,24 @@
+# Expo / React Native
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Native generated folders
+android/
+ios/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# TypeScript
+*.tsbuildinfo
