@@ -10,8 +10,8 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "prebuild:android": "expo prebuild --platform android --clean",
-    "build:apk": "eas build --platform android --profile preview",
-    "build:aab": "eas build --platform android --profile production"
+    "build:apk": "npx eas-cli@latest build --platform android --profile preview",
+    "build:aab": "npx eas-cli@latest build --platform android --profile production"
   },
   "dependencies": {
     "@react-native-community/datetimepicker": "9.1.0",
