@@ -280,6 +280,26 @@ Cuando la solicitud llega a `maintenance.finalize`, el backend sigue siendo la f
 
 Guardar firma o solicitar finalización **no inicia sincronización automática**. Fuera de 07:00–17:00 todo queda local; el botón manual puede sincronizar 24/7.
 
+### Etapa 8 — Triggers automáticos ✅
+
+La sincronización automática reutiliza exclusivamente el mismo `SyncCoordinator`.
+
+Triggers habilitados:
+
+- apertura/restauración de sesión;
+- regreso a foreground;
+- recuperación real de conectividad;
+- cambios locales registrados en la outbox;
+- `expo-background-task` / `TaskManager` como apoyo diferible.
+
+Todos los triggers automáticos verifican primero la ventana `07:00 <= hora < 17:00` en `America/Costa_Rica`. Fuera de horario no se inicia `sync.delta`, upload ni otra operación remota automática. El botón **Sincronizar ahora** continúa funcionando 24/7.
+
+Si un ciclo automático cruza las 17:00, la unidad atómica que ya está en vuelo puede finalizar de forma segura, pero no se inicia otra unidad, página de snapshot, `sync.delta`, recurso estático u operación de outbox.
+
+Los cambios locales emiten una señal en memoria con debounce; los repositorios nunca llaman red directamente. El background task abre la misma SQLite, recupera la misma sesión segura, usa el mismo scope y adquiere el mismo lease de sincronización.
+
+No existe un servicio vivo ni polling agresivo. BackgroundTask usa un intervalo mínimo de 60 minutos y el sistema operativo decide cuándo ejecutarlo. En foreground solo existe un timer hacia el siguiente límite horario (07:00 o 17:00).
+
 ## Política de sincronización
 
 Zona horaria operativa:
@@ -300,9 +320,7 @@ Manual:
 24 horas
 ```
 
-Todavía **no existen triggers automáticos**. No se registra `expo-background-task`, no se sincroniza por foreground/red/cambio local y no existe polling.
-
-El botón **Sincronizar ahora** y la actualización manual de un detalle son las únicas acciones de red conectadas.
+Los triggers automáticos están activos únicamente dentro de la ventana operativa. El botón **Sincronizar ahora** y las acciones manuales siguen disponibles fuera de horario cuando el usuario las solicita explícitamente.
 
 ## Conflictos
 
@@ -334,7 +352,7 @@ Al procesar la outbox, el archivo se lee como Base64 únicamente para reutilizar
 5. **Edición offline** ✅
 6. **Evidencias** ✅
 7. **Firmas y finalización** ✅
-8. **Triggers automáticos** — foreground, recuperación de red, cambio local y `expo-background-task`, limitados a 07:00–17:00.
+8. **Triggers automáticos** ✅
 9. **Hardening** — concurrencia, recuperación, rendimiento, pruebas y consistencia web/móvil.
 10. **APK / distribución** — EAS Build y validación en Android real.
 
