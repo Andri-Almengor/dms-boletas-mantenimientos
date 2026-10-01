@@ -25,6 +25,7 @@ async function currentSchemaVersion(db: SQLiteDatabase) {
 export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync('PRAGMA journal_mode = WAL;');
   await db.execAsync('PRAGMA foreign_keys = ON;');
+  await db.execAsync('PRAGMA busy_timeout = 5000;');
   await ensureMigrationTable(db);
 
   let current = await currentSchemaVersion(db);
@@ -49,4 +50,7 @@ export async function initializeDatabase(db: SQLiteDatabase) {
       `Esquema SQLite inesperado: ${current}. Esperado: ${LOCAL_SCHEMA_VERSION}.`,
     );
   }
+
+  // Mantiene estadísticas/índices de SQLite sin VACUUM ni bloqueos prolongados.
+  await db.execAsync('PRAGMA optimize;');
 }
