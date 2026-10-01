@@ -474,3 +474,15 @@ Guardar localmente y sincronizar son conceptos separados.
 - La sincronización automática solo podrá ejecutarse entre 07:00 y 17:00.
 - La sincronización manual está disponible las 24 horas.
 - Fuera de horario no existe error: los cambios permanecen pendientes localmente.
+
+
+## Corrección de bootstrap de mantenimientos
+
+Durante la primera prueba real desde Expo se detectó que el login funcionaba pero los mantenimientos existentes podían no aparecer en SQLite.
+
+Se corrigieron dos diferencias respecto al cliente web existente:
+
+1. `maintenance.list` ya no recibe `activo:true` desde el móvil. El endpoint de backend ya aplica `excludeInactive` y considera válidos registros históricos sin valor explícito en `Activo`; forzar el booleano desde el móvil podía excluirlos.
+2. Si `sync.delta` está deshabilitado, marcado `sync_unsafe` o no puede inicializarse, el móvil ahora utiliza el mismo principio que la web: descarga el snapshot desde la ruta autoritativa (`maintenance.list`) y mantiene SQLite utilizable offline, sin inventar `generation` ni `cacheScope`.
+
+No se ampliaron permisos. El fallback sigue pasando por `POST /api/action` y las validaciones del backend.
