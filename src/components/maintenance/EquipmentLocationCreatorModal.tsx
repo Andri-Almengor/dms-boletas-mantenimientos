@@ -21,6 +21,8 @@ type Props = {
   visible: boolean;
   parentOptions: OptionItem[];
   initialParentId?: string;
+  title?: string;
+  parentLabel?: string;
   saving?: boolean;
   onClose: () => void;
   onSubmit: (value: EquipmentLocationCreatorValue) => void | Promise<void>;
@@ -30,6 +32,8 @@ export function EquipmentLocationCreatorModal({
   visible,
   parentOptions,
   initialParentId = '',
+  title = 'Nueva ubicación',
+  parentLabel = 'Ubicación principal *',
   saving = false,
   onClose,
   onSubmit,
@@ -88,7 +92,7 @@ export function EquipmentLocationCreatorModal({
           </Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>Ubicación del equipo</Text>
-            <Text style={styles.title}>Nueva ubicación</Text>
+            <Text style={styles.title}>{title}</Text>
           </View>
           <Pressable
             disabled={saving}
@@ -117,7 +121,7 @@ export function EquipmentLocationCreatorModal({
           ) : null}
 
           <OptionSheet
-            label="Ubicación principal *"
+            label={parentLabel}
             value={parentLocationId}
             options={parentOptions}
             disabled={saving}
