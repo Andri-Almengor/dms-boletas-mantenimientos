@@ -5,7 +5,6 @@ import {
   DraftMaintenanceEvidence,
   MaintenanceEvidenceDraftSection,
 } from '@/components/maintenance/MaintenanceEvidenceDraftSection';
-import { MaintenanceEvidenceManager } from '@/components/maintenance/MaintenanceEvidenceManager';
 import { ProjectProgressEditor } from '@/components/maintenance/ProjectProgressEditor';
 import { useAuth } from '@/auth/AuthProvider';
 import {
