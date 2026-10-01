@@ -173,6 +173,106 @@ export type EquipmentLocationDraft = {
   description?: string;
 };
 
+async function saveLocalEquipmentLocationTx(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  draft: EquipmentLocationDraft,
+  dependsOnOperationId = '',
+) {
+  const localId = String(draft.localId || '').trim() || createLocalId('ubicacion-equipo');
+  const parentLocationId = String(draft.parentLocationId || '').trim();
+  const name = String(draft.name || '').trim();
+  const description = String(draft.description || '').trim();
+
+  if (!parentLocationId) {
+    throw new Error('Seleccione la ubicación principal para la nueva ubicación del equipo.');
+  }
+  if (!name) {
+    throw new Error('Escriba el nombre de la ubicación del equipo.');
+  }
+
+  await upsertResourceItemTx(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    {
+      UbicacionEquipoID: localId,
+      UbicacionID: parentLocationId,
+      Nombre: name,
+      Descripcion: description,
+      Estado: 'ACTIVO',
+      Activo: true,
+      __localDraft: true,
+    },
+  );
+
+  const existingCreate = await findPendingEntityCreateOperation(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    localId,
+  );
+  if (existingCreate) {
+    return {
+      localId,
+      operationId: existingCreate.operation_id,
+    };
+  }
+
+  const queued = await enqueueOutboxOperationTx(db, {
+    scopeKey,
+    operationKind: 'CREATE',
+    route: 'equipmentLocations.operational.create',
+    entityType: 'equipmentLocation',
+    entityId: localId,
+    aggregateId: maintenanceId,
+    payload: {
+      ubicacionId: parentLocationId,
+      UbicacionID: parentLocationId,
+      nombre: name,
+      Nombre: name,
+      descripcion: description,
+      Descripcion: description,
+      activo: true,
+      Activo: true,
+    },
+    priority: 50,
+    dedupeKey: `equipmentLocation:create:${localId}`,
+    dependsOnOperationId,
+  });
+
+  return {
+    localId,
+    operationId: queued.operationId,
+  };
+}
+
+export async function saveLocalEquipmentLocation(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  draft: EquipmentLocationDraft,
+) {
+  let result = { localId: '', operationId: '' };
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const maintenanceCreate = await findPendingEntityCreateOperation(
+      transaction,
+      scopeKey,
+      'maintenance',
+      maintenanceId,
+    );
+    result = await saveLocalEquipmentLocationTx(
+      transaction,
+      scopeKey,
+      maintenanceId,
+      draft,
+      maintenanceCreate?.operation_id || '',
+    );
+  });
+  return result;
+}
+
 type SaveDeviceOptions = {
   equipmentLocationDraft?: EquipmentLocationDraft | null;
 };
@@ -208,62 +308,14 @@ async function saveLocalDeviceTx(
   let equipmentDependencyId = '';
   const locationDraft = options.equipmentLocationDraft || null;
   if (locationDraft?.localId) {
-    const parentLocationId = String(locationDraft.parentLocationId || '').trim();
-    const name = String(locationDraft.name || '').trim();
-    if (!parentLocationId) {
-      throw new Error('Seleccione la ubicación principal para la nueva ubicación del equipo.');
-    }
-    if (!name) {
-      throw new Error('Escriba el nombre de la ubicación del equipo.');
-    }
-
-    await upsertResourceItemTx(
+    const location = await saveLocalEquipmentLocationTx(
       db,
       scopeKey,
-      'equipmentLocation',
-      {
-        UbicacionEquipoID: locationDraft.localId,
-        UbicacionID: parentLocationId,
-        Nombre: name,
-        Descripcion: String(locationDraft.description || ''),
-        Estado: 'ACTIVO',
-        Activo: true,
-        __localDraft: true,
-      },
+      maintenanceId,
+      locationDraft,
+      maintenanceCreate?.operation_id || '',
     );
-
-    const existingLocationCreate = await findPendingEntityCreateOperation(
-      db,
-      scopeKey,
-      'equipmentLocation',
-      locationDraft.localId,
-    );
-    if (existingLocationCreate) {
-      equipmentDependencyId = existingLocationCreate.operation_id;
-    } else {
-      const locationCreate = await enqueueOutboxOperationTx(db, {
-        scopeKey,
-        operationKind: 'CREATE',
-        route: 'equipmentLocations.operational.create',
-        entityType: 'equipmentLocation',
-        entityId: locationDraft.localId,
-        aggregateId: maintenanceId,
-        payload: {
-          ubicacionId: parentLocationId,
-          UbicacionID: parentLocationId,
-          nombre: name,
-          Nombre: name,
-          descripcion: String(locationDraft.description || ''),
-          Descripcion: String(locationDraft.description || ''),
-          activo: true,
-          Activo: true,
-        },
-        priority: 50,
-        dedupeKey: `equipmentLocation:create:${locationDraft.localId}`,
-        dependsOnOperationId: maintenanceCreate?.operation_id || '',
-      });
-      equipmentDependencyId = locationCreate.operationId;
-    }
+    equipmentDependencyId = location.operationId;
   }
 
   const existingPayload = existing
