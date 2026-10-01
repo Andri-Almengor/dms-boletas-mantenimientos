@@ -1,0 +1,38 @@
+name: Mobile CI
+
+on:
+  push:
+    branches:
+      - feat/stage-1-mobile-foundation
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Regression tests
+        run: npm test
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Export Android bundle
+        run: npx expo export --platform android --output-dir dist-ci
