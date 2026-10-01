@@ -32,6 +32,9 @@ test('editores escriben en repositorios SQLite y no llaman directamente a red', 
 
 test('guardar mantenimiento bloquea cambio Mantenimiento-Proyecto cuando ya existen dispositivos', () => {
   assert.match(maintenanceRepo, /SELECT COUNT\(\*\) AS total/);
+  assert.match(maintenanceRepo, /DispositivosRegistrados/);
+  assert.match(maintenanceRepo, /CantidadDispositivos/);
+  assert.match(maintenanceRepo, /Math\.max\(Number\(devices\?\.total/);
   assert.match(maintenanceRepo, /No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos/);
   assert.match(maintenanceRepo, /withExclusiveTransactionAsync/);
 });

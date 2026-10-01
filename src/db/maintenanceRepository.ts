@@ -166,6 +166,9 @@ export async function saveLocalMaintenance(
 
     if (!savedId) savedId = createLocalId('mantenimiento');
 
+    const existingPayload = existing
+      ? parseJsonObject<MaintenanceRecord>(existing.payload_json)
+      : null;
     const requestedType = normalizeType(
       pick(patch, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType']),
     );
@@ -177,16 +180,17 @@ export async function saveLocalMaintenance(
         scopeKey,
         savedId,
       );
-      if (Number(devices?.total || 0) > 0) {
+      const summaryCount = Number(
+        existingPayload?.DispositivosRegistrados
+          || existingPayload?.CantidadDispositivos
+          || 0,
+      );
+      if (Math.max(Number(devices?.total || 0), summaryCount) > 0) {
         throw new Error(
           'No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.',
         );
       }
     }
-
-    const existingPayload = existing
-      ? parseJsonObject<MaintenanceRecord>(existing.payload_json)
-      : null;
     let merged = existing
       ? mergeJsonPayload(existing.payload_json, patch)
       : { ...patch };

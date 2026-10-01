@@ -175,6 +175,7 @@ export function DeviceEditorScreen({
 
   useEffect(() => {
     if (!dataScope || !user || !maintenanceId) return;
+    const currentUserId = String(user.UsuarioID || '');
     let active = true;
 
     async function load() {
@@ -259,7 +260,7 @@ export function DeviceEditorScreen({
             ...nextForm,
             category: initialCategory.key,
             deviceTypeId: first(typeRow, ['TipoDispositivoID', 'id']),
-            technicianIds: user.UsuarioID ? [String(user.UsuarioID)] : [],
+            technicianIds: currentUserId ? [currentUserId] : [],
             answers: {},
           };
         }
@@ -433,11 +434,14 @@ export function DeviceEditorScreen({
   }
 
   async function save() {
-    if (!form || readOnly || saving) return;
+    if (!form || !maintenance || readOnly || saving) return;
+    const currentForm = form;
+    const currentMaintenance = maintenance;
     const validation = validateDeviceEditor(
-      form,
+      currentForm,
       questions,
-      maintenance.ProyectoChecklistJSON || maintenance.projectChecklist,
+      currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
+      catalogs.questions,
     );
     if (validation) {
       setError(validation);
@@ -452,10 +456,10 @@ export function DeviceEditorScreen({
         dataScope,
         maintenanceId,
         deviceEditorPayload(
-          form,
+          currentForm,
           maintenanceId,
           questions,
-          maintenance.ProyectoChecklistJSON || maintenance.projectChecklist,
+          currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
         ),
       );
       await refreshStatus();
@@ -476,8 +480,9 @@ export function DeviceEditorScreen({
   }
 
   function requestDelete() {
-    if (!form.id || saving) return;
+    if (!form || !maintenance || !form.id || saving) return;
     if (!canDeleteMaintenanceDevice(permissions, maintenance.Estado)) return;
+    const currentDeviceId = form.id;
 
     Alert.alert(
       'Eliminar dispositivo',
@@ -493,7 +498,7 @@ export function DeviceEditorScreen({
               db,
               dataScope,
               maintenanceId,
-              form.id,
+              currentDeviceId,
             ).then(async () => {
               await refreshStatus();
               router.replace({

@@ -14,10 +14,12 @@ import {
   normalizeProjectProgress,
   projectChecklistProgressForDevice,
   projectQuestionMissing,
+  normalizeProjectRelationValue,
 } from '@/features/maintenance/maintenanceProject';
 import {
   MaintenanceQuestion,
   parseAnswers,
+  questionsForDevice,
 } from '@/features/maintenance/maintenanceQuestions';
 import {
   macAddressError,
@@ -125,7 +127,7 @@ export function createMaintenanceEditorForm(userId = ''): MaintenanceEditorForm 
     responsibleIds: userId ? [userId] : [],
     description: '',
     counts: createEmptyMaintenanceCounts(),
-    projectChecklist: emptyProjectChecklist(),
+    projectChecklist: normalizeProjectChecklist(emptyProjectChecklist()),
   };
 }
 
@@ -134,10 +136,11 @@ export function mapMaintenanceToEditor(
   userId = '',
 ): MaintenanceEditorForm {
   const base = createMaintenanceEditorForm(userId);
-  const counts = {
-    ...base.counts,
-    ...parseObject(row.CantidadesJSON || row.counts),
-  };
+  const counts: Record<string, number> = { ...base.counts };
+  const storedCounts = parseObject(row.CantidadesJSON || row.counts);
+  for (const [key, value] of Object.entries(storedCounts)) {
+    counts[key] = Math.max(0, Number(value || 0));
+  }
   for (const category of MAINTENANCE_CATEGORIES) {
     const direct = row[category.countField];
     if (direct !== undefined && direct !== null && direct !== '') {
@@ -373,6 +376,7 @@ export function validateDeviceEditor(
   form: DeviceEditorForm,
   questions: MaintenanceQuestion[],
   projectChecklist: unknown,
+  allQuestions: MaintenanceQuestion[] = questions,
 ) {
   if (!form.equipmentLocationId) return 'Seleccione la ubicación del equipo.';
   if (!form.category) return 'Seleccione el tipo de dispositivo.';
@@ -390,16 +394,45 @@ export function validateDeviceEditor(
     if (missing.length) {
       return `Complete el campo obligatorio “${missing[0].label || missing[0].key}”.`;
     }
-    const progress = projectChecklistProgressForDevice(
-      projectChecklist,
-      {
-        tipoDispositivoId: form.deviceTypeId,
-        categoria: form.category,
-        projectProgress: form.projectProgress,
-      },
-    );
-    if (!progress.complete) {
-      return 'Complete el checklist de progreso configurado para este dispositivo.';
+
+    for (const question of questions) {
+      if (question.responseType !== 'RELACION_DISPOSITIVO') continue;
+      const relation = normalizeProjectRelationValue(
+        form.answers[question.key],
+        { relatedTypeId: question.relatedTypeId },
+      );
+      if (!relation.enabled) continue;
+
+      for (const item of relation.items) {
+        const directMacError = macAddressError(item.macAddress);
+        if (directMacError) return directMacError;
+
+        const childQuestions = questionsForDevice(
+          allQuestions,
+          item,
+          'PROYECTO',
+        ).filter((entry) => entry.responseType !== 'RELACION_DISPOSITIVO');
+
+        for (const childQuestion of childQuestions) {
+          const childValue = (
+            item.respuestas
+            && typeof item.respuestas === 'object'
+            && !Array.isArray(item.respuestas)
+          )
+            ? (item.respuestas as Record<string, unknown>)[childQuestion.key]
+            : '';
+          if (projectQuestionMissing(
+            childQuestion as unknown as RecordLike,
+            childValue,
+          )) {
+            return `Complete el campo obligatorio “${childQuestion.label || childQuestion.key}”.`;
+          }
+          if (childQuestion.responseType === 'MAC') {
+            const childMacError = macAddressError(childValue);
+            if (childMacError) return childMacError;
+          }
+        }
+      }
     }
   }
   return '';

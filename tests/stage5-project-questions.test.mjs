@@ -33,6 +33,14 @@ test('campos de proyecto soportan los tipos configurables del backend', () => {
   assert.match(dynamicField, /questionDetails/);
 });
 
+test('validación de relaciones de Proyecto reutiliza preguntas hijas y MAC sin bloquear progreso incompleto', () => {
+  assert.match(domain, /questionsForDevice/);
+  assert.match(domain, /normalizeProjectRelationValue/);
+  assert.match(domain, /childMacError/);
+  assert.match(domain, /projectQuestionMissing/);
+  assert.doesNotMatch(domain, /Complete el checklist de progreso configurado para este dispositivo/);
+});
+
 test('payload de dispositivo conserva snapshot de preguntas y progreso de proyecto', () => {
   assert.match(domain, /questionDetails/);
   assert.match(domain, /respuestasDetalle/);

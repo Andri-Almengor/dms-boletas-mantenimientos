@@ -100,7 +100,7 @@ function Choice({
 function ProjectRelationField({
   question,
   value,
-  disabled,
+  disabled = false,
   catalogs,
   allQuestions,
   onChange,

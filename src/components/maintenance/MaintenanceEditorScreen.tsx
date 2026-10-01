@@ -123,6 +123,7 @@ export function MaintenanceEditorScreen({
 
   useEffect(() => {
     if (!dataScope || !user) return;
+    const currentUserId = String(user.UsuarioID || '');
     let active = true;
 
     async function load() {
@@ -150,11 +151,15 @@ export function MaintenanceEditorScreen({
             countLocalDevices(db, dataScope, maintenanceId),
           ]);
           if (!active) return;
-          setDeviceCount(count);
-          setForm(mapMaintenanceToEditor(row, String(user.UsuarioID || '')));
+          const knownCount = Math.max(
+            count,
+            Number(row.DispositivosRegistrados || row.CantidadDispositivos || 0),
+          );
+          setDeviceCount(knownCount);
+          setForm(mapMaintenanceToEditor(row, currentUserId));
         } else {
           setDeviceCount(0);
-          setForm(createMaintenanceEditorForm(String(user.UsuarioID || '')));
+          setForm(createMaintenanceEditorForm(currentUserId));
         }
       } catch (loadError) {
         if (!active) return;
