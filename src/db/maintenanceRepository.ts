@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { withDatabaseLockRetry } from '@/db/database';
 import { mergeJsonPayload, parseJsonObject, stringifyJson } from '@/db/json';
 import {
   enqueueOutboxOperationTx,
@@ -416,12 +417,12 @@ export async function getLocalMaintenance(
   scopeKey: string,
   id: string,
 ) {
-  const row = await db.getFirstAsync<{ payload_json: string }>(
+  const row = await withDatabaseLockRetry(() => db.getFirstAsync<{ payload_json: string }>(
     `SELECT payload_json FROM local_maintenances
      WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0`,
     scopeKey,
     id,
-  );
+  ));
   return row
     ? parseJsonObject<MaintenanceRecord>(row.payload_json)
     : null;
