@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { withDatabaseLockRetry } from '@/db/database';
 import { parseJsonObject } from '@/db/json';
 import { upsertRemoteMaintenance } from '@/db/maintenanceRepository';
 import { upsertRemoteDevice } from '@/db/deviceRepository';
@@ -240,7 +241,7 @@ export async function readLocalMaintenanceDetail(
   scopeKey: string,
   maintenanceId: string,
 ): Promise<LocalMaintenanceDetail | null> {
-  const maintenanceRow = await db.getFirstAsync<{
+  const maintenanceRow = await withDatabaseLockRetry(() => db.getFirstAsync<{
     payload_json: string;
     sync_status: string;
     complete: number;
@@ -257,10 +258,10 @@ export async function readLocalMaintenanceDetail(
      WHERE m.scope_key = ? AND m.maintenance_id = ? AND m.tombstone = 0`,
     scopeKey,
     maintenanceId,
-  );
+  ));
   if (!maintenanceRow) return null;
 
-  const deviceRows = await db.getAllAsync<{
+  const deviceRows = await withDatabaseLockRetry(() => db.getAllAsync<{
     device_id: string;
     payload_json: string;
     sync_status: string;
@@ -275,9 +276,9 @@ export async function readLocalMaintenanceDetail(
        local_updated_at ASC`,
     scopeKey,
     maintenanceId,
-  );
+  ));
 
-  const evidenceRows = await db.getAllAsync<{
+  const evidenceRows = await withDatabaseLockRetry(() => db.getAllAsync<{
     device_id: string;
     payload_json: string;
     sync_status: string;
@@ -295,7 +296,7 @@ export async function readLocalMaintenanceDetail(
      ORDER BY e.captured_at DESC, e.local_updated_at DESC`,
     scopeKey,
     maintenanceId,
-  );
+  ));
 
   const evidenceByDevice = new Map<string, LocalEvidenceView[]>();
   for (const row of evidenceRows) {
@@ -334,7 +335,7 @@ export async function readLocalDeviceDetail(
   maintenanceId: string,
   deviceId: string,
 ): Promise<LocalDeviceDetail | null> {
-  const deviceRow = await db.getFirstAsync<{
+  const deviceRow = await withDatabaseLockRetry(() => db.getFirstAsync<{
     payload_json: string;
     sync_status: string;
   }>(
@@ -344,10 +345,10 @@ export async function readLocalDeviceDetail(
     scopeKey,
     maintenanceId,
     deviceId,
-  );
+  ));
   if (!deviceRow) return null;
 
-  const navigation = await db.getAllAsync<{ device_id: string }>(
+  const navigation = await withDatabaseLockRetry(() => db.getAllAsync<{ device_id: string }>(
     `SELECT device_id
      FROM local_maintenance_devices
      WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0
@@ -358,10 +359,10 @@ export async function readLocalDeviceDetail(
        local_updated_at ASC`,
     scopeKey,
     maintenanceId,
-  );
+  ));
   const index = navigation.findIndex((item) => item.device_id === deviceId);
 
-  const evidenceRows = await db.getAllAsync<{
+  const evidenceRows = await withDatabaseLockRetry(() => db.getAllAsync<{
     payload_json: string;
     sync_status: string;
     local_uri: string;
@@ -377,7 +378,7 @@ export async function readLocalDeviceDetail(
      ORDER BY e.captured_at DESC, e.local_updated_at DESC`,
     scopeKey,
     deviceId,
-  );
+  ));
 
   const device: LocalDeviceView = {
     ...parseJsonObject<RecordLike>(deviceRow.payload_json),
