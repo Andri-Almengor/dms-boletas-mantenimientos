@@ -22,8 +22,20 @@ test('Etapa 9 agrega índices para barrera por agregado y housekeeping', () => {
 
 test('SQLite tolera concurrencia foreground/background sin cambiar durabilidad de negocio', () => {
   assert.match(database, /PRAGMA journal_mode = WAL/);
-  assert.match(database, /PRAGMA busy_timeout = 5000/);
+  assert.match(database, /PRAGMA busy_timeout = \$\{SQLITE_BUSY_TIMEOUT_MS\}/);
+  assert.match(database, /SQLITE_BUSY_TIMEOUT_MS = 5_000/);
+  assert.match(database, /PRAGMA journal_mode;/);
+  assert.match(database, /isDatabaseLockedError/);
+  assert.match(database, /withDatabaseLockRetry/);
+  assert.match(database, /SELECT version FROM schema_migrations WHERE version = \?/);
   assert.match(database, /PRAGMA optimize/);
+
+  const busy = database.indexOf('PRAGMA busy_timeout');
+  const walRead = database.indexOf('PRAGMA journal_mode;');
+  const walWrite = database.indexOf('PRAGMA journal_mode = WAL');
+  assert.ok(busy >= 0);
+  assert.ok(walRead > busy);
+  assert.ok(walWrite > walRead);
   assert.doesNotMatch(database, /PRAGMA synchronous\s*=\s*OFF/i);
 });
 
