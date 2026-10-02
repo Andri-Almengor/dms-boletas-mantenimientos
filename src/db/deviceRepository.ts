@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { withDatabaseLockRetry } from '@/db/database';
 import { mergeJsonPayload, parseJsonObject, stringifyJson } from '@/db/json';
 import {
   saveLocalEvidenceTx,
@@ -409,7 +410,7 @@ export async function saveLocalDevice(
   options: SaveDeviceOptions = {},
 ) {
   let result = { deviceId: '', operationId: '' };
-  await db.withExclusiveTransactionAsync(async (transaction) => {
+  await withDatabaseLockRetry(() => db.withExclusiveTransactionAsync(async (transaction) => {
     result = await saveLocalDeviceTx(
       transaction,
       scopeKey,
@@ -417,7 +418,7 @@ export async function saveLocalDevice(
       patch,
       options,
     );
-  });
+  }));
   return result;
 }
 
@@ -432,7 +433,7 @@ export async function saveLocalDeviceWithEvidence(
 ) {
   let result = { deviceId: '', operationId: '', evidenceCount: 0 };
 
-  await db.withExclusiveTransactionAsync(async (transaction) => {
+  await withDatabaseLockRetry(() => db.withExclusiveTransactionAsync(async (transaction) => {
     const device = await saveLocalDeviceTx(
       transaction,
       scopeKey,
@@ -459,7 +460,7 @@ export async function saveLocalDeviceWithEvidence(
       ...device,
       evidenceCount,
     };
-  });
+  }));
 
   return result;
 }
@@ -472,7 +473,7 @@ export async function deleteLocalDevice(
 ) {
   let operationId = '';
 
-  await db.withExclusiveTransactionAsync(async (transaction) => {
+  await withDatabaseLockRetry(() => db.withExclusiveTransactionAsync(async (transaction) => {
     const existing = await transaction.getFirstAsync<{
       payload_json: string;
       sync_status: string;
@@ -567,7 +568,7 @@ export async function deleteLocalDevice(
     }
 
     await refreshDetailCountsTx(transaction, scopeKey, maintenanceId);
-  });
+  }));
 
   return { deviceId, operationId };
 }

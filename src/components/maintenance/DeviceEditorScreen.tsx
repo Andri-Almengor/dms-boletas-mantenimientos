@@ -223,10 +223,19 @@ export function DeviceEditorScreen({
       setLoading(true);
       setError('');
       try {
-        const [maintenanceRow, localDetail] = await Promise.all([
-          getLocalMaintenance(db, dataScope, maintenanceId),
-          readLocalMaintenanceDetail(db, dataScope, maintenanceId),
-        ]);
+        // expo-sqlite prepara/finaliza statements de forma asíncrona.
+        // Mantener estas lecturas locales en secuencia evita competir con
+        // escrituras del SyncCoordinator sobre la misma base en Android.
+        const maintenanceRow = await getLocalMaintenance(
+          db,
+          dataScope,
+          maintenanceId,
+        );
+        const localDetail = await readLocalMaintenanceDetail(
+          db,
+          dataScope,
+          maintenanceId,
+        );
         if (!maintenanceRow) {
           throw new Error('El mantenimiento no está disponible en SQLite.');
         }
@@ -236,25 +245,44 @@ export function DeviceEditorScreen({
           maintenanceRow,
           ['ClienteID', 'ClienteRef', 'clienteId'],
         );
-        const [
-          deviceTypes,
-          manufacturers,
-          models,
-          relations,
-          users,
-          clientLocationRows,
-          maintenanceConfig,
-        ] = await Promise.all([
-          listResourceItems(db, dataScope, 'deviceType'),
-          listResourceItems(db, dataScope, 'manufacturer'),
-          listResourceItems(db, dataScope, 'model'),
-          listResourceItems(db, dataScope, 'deviceManufacturerRelation'),
-          listResourceItems(db, dataScope, 'assignableUser'),
-          clientId
-            ? listResourceItems(db, dataScope, 'clientLocation', clientId)
-            : Promise.resolve([]),
-          listResourceItems(db, dataScope, 'maintenanceConfig'),
-        ]);
+        const deviceTypes = await listResourceItems(
+          db,
+          dataScope,
+          'deviceType',
+        );
+        const manufacturers = await listResourceItems(
+          db,
+          dataScope,
+          'manufacturer',
+        );
+        const models = await listResourceItems(
+          db,
+          dataScope,
+          'model',
+        );
+        const relations = await listResourceItems(
+          db,
+          dataScope,
+          'deviceManufacturerRelation',
+        );
+        const users = await listResourceItems(
+          db,
+          dataScope,
+          'assignableUser',
+        );
+        const clientLocationRows = clientId
+          ? await listResourceItems(
+              db,
+              dataScope,
+              'clientLocation',
+              clientId,
+            )
+          : [];
+        const maintenanceConfig = await listResourceItems(
+          db,
+          dataScope,
+          'maintenanceConfig',
+        );
 
         const fallbackLocation = locationId
           && !clientLocationRows.some((row) => (

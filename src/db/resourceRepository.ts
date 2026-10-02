@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { withDatabaseLockRetry } from '@/db/database';
 import { parseJsonObject, stringifyJson } from '@/db/json';
 
 const RESOURCE_ID_KEYS: Record<string, string[]> = {
@@ -138,21 +139,21 @@ export async function listResourceItems(
   parentId = '',
 ) {
   const rows = parentId
-    ? await db.getAllAsync<{ payload_json: string }>(
+    ? await withDatabaseLockRetry(() => db.getAllAsync<{ payload_json: string }>(
       `SELECT payload_json FROM local_resource_items
        WHERE scope_key = ? AND resource = ? AND parent_id = ? AND active = 1
        ORDER BY label COLLATE NOCASE ASC`,
       scopeKey,
       resource,
       parentId,
-    )
-    : await db.getAllAsync<{ payload_json: string }>(
+    ))
+    : await withDatabaseLockRetry(() => db.getAllAsync<{ payload_json: string }>(
       `SELECT payload_json FROM local_resource_items
        WHERE scope_key = ? AND resource = ? AND active = 1
        ORDER BY label COLLATE NOCASE ASC`,
       scopeKey,
       resource,
-    );
+    ));
 
   return rows.map((row) => {
     try { return JSON.parse(row.payload_json) as Record<string, unknown>; }
@@ -172,7 +173,7 @@ export async function listResourceItemsByParents(
   if (!ids.length) return [];
 
   const placeholders = ids.map(() => '?').join(', ');
-  const rows = await db.getAllAsync<{ payload_json: string }>(
+  const rows = await withDatabaseLockRetry(() => db.getAllAsync<{ payload_json: string }>(
     `SELECT payload_json
      FROM local_resource_items
      WHERE scope_key = ?
@@ -183,7 +184,7 @@ export async function listResourceItemsByParents(
     scopeKey,
     resource,
     ...ids,
-  );
+  ));
 
   return rows.map((row) => {
     try { return JSON.parse(row.payload_json) as Record<string, unknown>; }

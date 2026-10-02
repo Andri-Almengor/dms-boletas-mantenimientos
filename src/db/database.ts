@@ -26,7 +26,7 @@ function wait(milliseconds: number) {
   });
 }
 
-async function withDatabaseLockRetry<T>(
+export async function withDatabaseLockRetry<T>(
   operation: () => Promise<T>,
   delays = INITIALIZATION_RETRY_DELAYS_MS,
 ) {
