@@ -31,7 +31,8 @@ export function ProjectChecklistEditor({
   disabled = false,
   onChange,
 }: Props) {
-  const schema = normalizeProjectChecklist(value);
+  const draftOptions = { preserveDraftText: true };
+  const schema = normalizeProjectChecklist(value, draftOptions);
   const selected = MAINTENANCE_CATEGORIES.filter(
     (category) => Number(counts[category.countField] || 0) > 0,
   );
@@ -48,6 +49,7 @@ export function ProjectChecklistEditor({
         countField: category.countField,
       },
       updater,
+      draftOptions,
     ));
   }
 
@@ -72,11 +74,15 @@ export function ProjectChecklistEditor({
       </View>
 
       {selected.map((category) => {
-        const group = projectChecklistGroupForCategory(schema, {
-          key: category.key,
-          label: category.key,
-          countField: category.countField,
-        }) || { questions: [] };
+        const group = projectChecklistGroupForCategory(
+          schema,
+          {
+            key: category.key,
+            label: category.key,
+            countField: category.countField,
+          },
+          draftOptions,
+        ) || { questions: [] };
 
         return (
           <View key={category.countField} style={styles.group}>
