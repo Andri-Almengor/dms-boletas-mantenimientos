@@ -76,6 +76,7 @@ test('una operación de outbox ya iniciada puede completar su unidad atómica', 
 });
 
 test('BackgroundTask abre la misma SQLite, sesión y scope, y usa el mismo ciclo', () => {
+  assert.match(background, /AppState\.currentState === 'active'/);
   assert.match(background, /DATABASE_NAME/);
   assert.match(background, /readStoredSession/);
   assert.match(background, /buildLocalDataScope/);
