@@ -62,11 +62,7 @@ export default function MaintenanceListScreen() {
     dataScope,
     logout,
   } = useAuth();
-  const {
-    syncNow,
-    lastSuccessAt,
-    syncing,
-  } = useSync();
+  const { lastSuccessAt } = useSync();
 
   const [status, setStatus] = useState<MaintenanceStatus>('PENDIENTE');
   const [search, setSearch] = useState('');
@@ -189,12 +185,10 @@ export default function MaintenanceListScreen() {
                 >
                   <Text style={styles.logoutText}>Salir</Text>
                 </Pressable>
+                <SyncStatusCard />
               </View>
             </View>
 
-            <View style={styles.syncWrap}>
-              <SyncStatusCard />
-            </View>
 
             <View style={styles.tabs}>
               {(['PENDIENTE', 'FINALIZADO'] as MaintenanceStatus[]).map((value) => (
@@ -292,18 +286,6 @@ export default function MaintenanceListScreen() {
                 ? 'No hay registros locales con los filtros actuales.'
                 : 'Sincronice una vez con conexión para preparar este dispositivo para trabajo offline.'}
             </Text>
-            {!appliedSearch && !activeFilters ? (
-              <Pressable
-                style={styles.primaryButton}
-                onPress={syncNow}
-                disabled={syncing}
-              >
-                {syncing ? <ActivityIndicator color="#fff" /> : null}
-                <Text style={styles.primaryButtonText}>
-                  {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : null}
         ListFooterComponent={loadingMore ? (
@@ -370,7 +352,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxs,
   },
   subtitle: { color: colors.muted, lineHeight: 19, marginTop: spacing.xxs, fontSize: 13 },
-  headingActions: { alignItems: 'flex-end', gap: spacing.xs },
+  headingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   createButton: {
     minHeight: sizing.touchTargetMin,
     paddingHorizontal: spacing.sm,
@@ -392,7 +378,6 @@ const styles = StyleSheet.create({
   },
   logoutPressed: { opacity: 0.72 },
   logoutText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
-  syncWrap: { paddingHorizontal: spacing.md },
   tabs: {
     flexDirection: 'row',
     gap: spacing.xs,
@@ -486,17 +471,5 @@ const styles = StyleSheet.create({
   emptyIcon: { color: colors.primary, fontSize: 34 },
   emptyTitle: { color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' },
   emptyText: { color: colors.muted, textAlign: 'center', lineHeight: 20 },
-  primaryButton: {
-    minHeight: sizing.buttonHeight,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.sm,
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  primaryButtonText: { color: '#fff', fontWeight: '900' },
   footerLoading: { padding: spacing.lg, alignItems: 'center' },
 });

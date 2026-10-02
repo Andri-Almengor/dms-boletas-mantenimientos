@@ -72,7 +72,7 @@ export function OptionSheet({
   return (
     <>
       <View style={styles.field}>
-        <Text style={styles.label}>{label}</Text>
+        {label ? <Text style={styles.label}>{label}</Text> : null}
         <Pressable
           disabled={disabled}
           onPress={() => setOpen(true)}

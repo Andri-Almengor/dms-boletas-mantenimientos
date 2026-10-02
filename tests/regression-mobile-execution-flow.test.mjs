@@ -40,7 +40,7 @@ test('editor sigue el flujo web: ubicación, identificación, grupo, checklist, 
 });
 
 test('ubicación de equipo se puede preparar inline con ruta operacional existente', () => {
-  assert.match(editor, /Agregar ubicación del equipo/);
+  assert.match(editor, /\+ Agregar ubicación/);
   assert.match(editor, /Ubicación principal \*/);
   assert.match(editor, /canCreateOperationalClientData/);
   assert.match(deviceRepo, /equipmentLocations\.operational\.create/);
