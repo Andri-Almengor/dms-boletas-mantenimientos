@@ -47,7 +47,9 @@ test('evidencias se agregan dentro del mismo flujo de creación del dispositivo'
   assert.match(editor, /mode === 'create'[\s\S]*MaintenanceEvidenceDraftSection/);
   assert.match(editor, /saveLocalDeviceWithEvidence/);
   assert.match(editor, /evidence: preparedEvidence/);
-  assert.match(editor, /Complete ubicación, datos del dispositivo y evidencias en una sola pantalla/);
+  // El copy visual cambió con el rediseño; la regresión protege el flujo real,
+  // no una frase concreta.
+  assert.match(editor, /Ubicación, datos, checklist y evidencias en un solo flujo/);
 });
 
 test('orden del formulario sigue el flujo operativo de la web', () => {
