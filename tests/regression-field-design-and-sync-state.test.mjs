@@ -56,6 +56,8 @@ test('detalle vincula solo ubicaciones elegidas al mantenimiento y conserva alta
   assert.match(detail, /saveLocalMaintenanceLocations/);
   assert.match(maintenanceRepo, /route: 'maintenance\.update\.locations'/);
   assert.match(maintenanceRepo, /maintenance:update-locations/);
+  assert.match(maintenanceRepo, /local_maintenance_detail_state/);
+  assert.match(maintenanceRepo, /if \(!detailState\?\.complete\)/);
   assert.match(deviceRepo, /saveLocalEquipmentLocationTx/);
   assert.match(deviceRepo, /route: 'equipmentLocations\.operational\.create'/);
   assert.match(deviceRepo, /entityType: 'equipmentLocation'/);
