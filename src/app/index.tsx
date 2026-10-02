@@ -176,7 +176,6 @@ export default function MaintenanceListScreen() {
                 </Text>
               </View>
               <View style={styles.headingActions}>
-                <SyncStatusCard />
                 <Pressable
                   onPress={logout}
                   style={({ pressed }) => [
@@ -186,6 +185,7 @@ export default function MaintenanceListScreen() {
                 >
                   <Text style={styles.logoutText}>Salir</Text>
                 </Pressable>
+                <SyncStatusCard />
               </View>
             </View>
 
@@ -286,11 +286,7 @@ export default function MaintenanceListScreen() {
                 ? 'No hay registros locales con los filtros actuales.'
                 : 'Sincronice una vez con conexión para preparar este dispositivo para trabajo offline.'}
             </Text>
-            {!appliedSearch && !activeFilters ? (
-              <Text style={styles.emptyHint}>
-                Use el icono de sincronización en la esquina superior derecha cuando quiera actualizar manualmente.
-              </Text>
-            ) : null}
+            {!appliedSearch && !activeFilters ? null : null}
           </View>
         ) : null}
         ListFooterComponent={loadingMore ? (
@@ -476,12 +472,5 @@ const styles = StyleSheet.create({
   emptyIcon: { color: colors.primary, fontSize: 34 },
   emptyTitle: { color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' },
   emptyText: { color: colors.muted, textAlign: 'center', lineHeight: 20 },
-  emptyHint: {
-    color: colors.muted,
-    textAlign: 'center',
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: spacing.xxs,
-  },
   footerLoading: { padding: spacing.lg, alignItems: 'center' },
 });
