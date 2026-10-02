@@ -33,12 +33,13 @@ test('actualizar un detalle reutiliza maintenance.get bajo el mismo lease de sin
   assert.match(coordinator, /persistAuthorizedMaintenanceDetail/);
 });
 
-test('detalle distingue resumen de snapshot completo', () => {
+test('detalle pregunta por la descarga hasta que exista snapshot completo', () => {
   assert.match(detailScreen, /detail\.detailComplete/);
-  // El rediseño conserva la misma distinción funcional con copy más corto.
-  assert.match(detailScreen, /Detalle pendiente de descarga/);
-  assert.match(detailScreen, /Descargue una vez el detalle/);
-  assert.match(detailScreen, /disponible sin conexión/i);
+  assert.match(detailScreen, /Alert\.alert\(\s*'Descargar mantenimiento'/);
+  assert.match(detailScreen, /Sí, descargar/);
+  assert.match(detailScreen, /setDownloadRequested\(true\)/);
+  assert.match(detailScreen, /refreshMaintenanceDetail\(maintenanceId\)/);
+  assert.doesNotMatch(detailScreen, /downloadCard|Disponible sin conexión/);
 });
 
 test('las rutas de detalle dejan de mostrar datos al perder sesión o scope', () => {
