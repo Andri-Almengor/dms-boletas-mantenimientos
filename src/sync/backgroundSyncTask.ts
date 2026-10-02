@@ -12,11 +12,19 @@ import { isSyncAllowed } from '@/sync/syncPolicy';
 import * as BackgroundTask from 'expo-background-task';
 import * as SQLite from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
+import { AppState } from 'react-native';
 
 export const BACKGROUND_SYNC_TASK_NAME = 'dms-maintenance-background-sync';
 export const BACKGROUND_SYNC_MINIMUM_INTERVAL_MINUTES = 60;
 
 async function executeBackgroundSync() {
+  // Si la interfaz está activa, SyncProvider ya es el dueño del ciclo
+  // foreground. No abrir una segunda conexión SQLite de escritura desde el
+  // BackgroundTask evita competir con SQLiteProvider durante arranque/restore.
+  if (AppState.currentState === 'active') {
+    return BackgroundTask.BackgroundTaskResult.Success;
+  }
+
   if (!isSyncAllowed('background')) {
     return BackgroundTask.BackgroundTaskResult.Success;
   }
