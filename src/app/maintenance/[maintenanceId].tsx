@@ -265,6 +265,80 @@ export default function MaintenanceDetailScreen() {
     load().catch(() => undefined);
   }, [load, lastSuccessAt]);
 
+  useEffect(() => {
+    if (
+      loading
+      || !detail
+      || detail.detailComplete
+      || downloadPromptedRef.current
+    ) return;
+
+    downloadPromptedRef.current = true;
+    Alert.alert(
+      'Descargar mantenimiento',
+      '¿Desea descargar ahora todo el contenido de este mantenimiento para poder trabajar sin conexión?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Sí, descargar',
+          onPress: () => setDownloadRequested(true),
+        },
+      ],
+    );
+  }, [loading, detail]);
+
+  useEffect(() => {
+    if (
+      !downloadRequested
+      || syncing
+      || downloadingDetail
+      || !detail
+      || detail.detailComplete
+    ) return;
+
+    let active = true;
+    setDownloadingDetail(true);
+
+    refreshMaintenanceDetail(maintenanceId)
+      .then(async (refreshed) => {
+        if (!active) return;
+        if (refreshed) {
+          await load();
+          return;
+        }
+        Alert.alert(
+          'No se pudo descargar',
+          'Verifique la conexión a Internet y vuelva a entrar al mantenimiento para intentarlo nuevamente.',
+        );
+      })
+      .catch((error) => {
+        if (!active) return;
+        Alert.alert(
+          'No se pudo descargar',
+          error instanceof Error
+            ? error.message
+            : 'No se pudo descargar el contenido del mantenimiento.',
+        );
+      })
+      .finally(() => {
+        if (!active) return;
+        setDownloadRequested(false);
+        setDownloadingDetail(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    detail,
+    downloadRequested,
+    downloadingDetail,
+    load,
+    maintenanceId,
+    refreshMaintenanceDetail,
+    syncing,
+  ]);
+
   const maintenance = detail?.mantenimiento || {};
 
   const maintenanceLocations = useMemo(
@@ -489,38 +563,72 @@ export default function MaintenanceDetailScreen() {
       <SectionList
         sections={filteredSections}
         keyExtractor={(item, index) => deviceId(item) || `device-${index}`}
-        renderItem={({ item }) => (
-          <DeviceCard item={item} onPress={() => openDevice(item)} />
+        renderItem={({ item, section }) => (
+          search.trim() || openLocations.has(section.key)
+            ? <DeviceCard item={item} onPress={() => openDevice(item)} />
+            : null
         )}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.locationCard}>
-            <View style={styles.locationIcon}>
-              <Text style={styles.locationGlyph}>⌖</Text>
-            </View>
-            <View style={styles.locationCopy}>
-              <Text style={styles.locationTitle} numberOfLines={1}>
-                {section.title}
-              </Text>
-              <Text style={styles.locationSubtitle} numberOfLines={1}>
-                {section.subtitle} · {section.data.length} dispositivo{section.data.length === 1 ? '' : 's'}
-              </Text>
-            </View>
-            {!readOnly && canEdit && detail.detailComplete && section.locationId ? (
+        renderSectionHeader={({ section }) => {
+          const open = Boolean(search.trim()) || openLocations.has(section.key);
+          return (
+            <View style={[
+              styles.locationCard,
+              open && styles.locationCardOpen,
+            ]}>
               <Pressable
-                onPress={() => openNewDevice(section)}
+                onPress={() => toggleLocation(section.key)}
                 accessibilityRole="button"
-                accessibilityLabel={`Agregar dispositivo en ${section.title}`}
+                accessibilityState={{ expanded: open }}
+                accessibilityLabel={`${open ? 'Cerrar' : 'Abrir'} ubicación ${section.title}`}
                 style={({ pressed }) => [
-                  styles.locationAddButton,
+                  styles.locationToggle,
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={styles.locationAddGlyph}>＋</Text>
-                <Text style={styles.locationAddText}>Dispositivo</Text>
+                <View style={styles.locationIcon}>
+                  <Text style={styles.locationGlyph}>⌖</Text>
+                </View>
+                <View style={styles.locationCopy}>
+                  <Text style={styles.locationTitle} numberOfLines={1}>
+                    {section.title}
+                  </Text>
+                  <Text style={styles.locationSubtitle} numberOfLines={1}>
+                    {section.subtitle} · {section.data.length} dispositivo{section.data.length === 1 ? '' : 's'}
+                  </Text>
+                </View>
+                <Text style={styles.locationChevron}>
+                  {open ? '⌃' : '⌄'}
+                </Text>
               </Pressable>
-            ) : null}
-          </View>
-        )}
+
+              {!readOnly && canEdit && detail.detailComplete && section.locationId ? (
+                <Pressable
+                  onPress={() => openNewDevice(section)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Agregar dispositivo en ${section.title}`}
+                  style={({ pressed }) => [
+                    styles.locationAddButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.locationAddGlyph}>＋</Text>
+                  <Text style={styles.locationAddText}>Dispositivo</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        }}
+        renderSectionFooter={({ section }) => {
+          const open = Boolean(search.trim()) || openLocations.has(section.key);
+          if (!open || section.data.length) return null;
+          return (
+            <View style={styles.locationEmpty}>
+              <Text style={styles.locationEmptyText}>
+                Esta ubicación todavía no tiene dispositivos.
+              </Text>
+            </View>
+          );
+        }}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.content}
         ListHeaderComponent={(
@@ -566,9 +674,6 @@ export default function MaintenanceDetailScreen() {
               </View>
             </View>
 
-            <View style={styles.syncWrap}>
-              <SyncStatusCard />
-            </View>
 
             {locationError ? (
               <View style={styles.errorBox}>
@@ -580,19 +685,17 @@ export default function MaintenanceDetailScreen() {
               <View style={styles.quickSection}>
                 <Text style={styles.sectionEyebrow}>Acciones rápidas</Text>
                 <View style={styles.quickActions}>
-                  {canCreateLocation && clientLocationOptions.length ? (
-                    <Pressable
-                      onPress={() => setLocationModalOpen(true)}
-                      style={({ pressed }) => [
-                        styles.quickButton,
-                        styles.quickButtonPrimary,
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text style={styles.quickIconPrimary}>⌖＋</Text>
-                      <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
-                    </Pressable>
-                  ) : null}
+                  <Pressable
+                    onPress={() => setLocationModalOpen(true)}
+                    style={({ pressed }) => [
+                      styles.quickButton,
+                      styles.quickButtonPrimary,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.quickIconPrimary}>⌖＋</Text>
+                    <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
+                  </Pressable>
 
                   {detail.detailComplete ? (
                     <Pressable
@@ -641,43 +744,6 @@ export default function MaintenanceDetailScreen() {
                   ? `${registered} de ${expected} dispositivos registrados`
                   : `${registered} dispositivo${registered === 1 ? '' : 's'} registrado${registered === 1 ? '' : 's'}`}
               </Text>
-            </View>
-
-            <View style={styles.downloadCard}>
-              <View style={styles.downloadIcon}>
-                <Text style={styles.downloadGlyph}>
-                  {detail.detailComplete ? '✓' : '↓'}
-                </Text>
-              </View>
-              <View style={styles.downloadText}>
-                <Text style={styles.downloadTitle}>
-                  {detail.detailComplete
-                    ? 'Disponible sin conexión'
-                    : 'Detalle pendiente de descarga'}
-                </Text>
-                <Text style={styles.downloadDescription}>
-                  {detail.detailComplete
-                    ? `${registered} dispositivos · ${evidenceCount} evidencias guardadas`
-                    : 'Descargue una vez el detalle para trabajar con dispositivos y evidencias sin conexión.'}
-                </Text>
-              </View>
-              <Pressable
-                onPress={updateDetail}
-                disabled={syncing}
-                style={({ pressed }) => [
-                  styles.updateButton,
-                  pressed && !syncing && styles.pressed,
-                  syncing && styles.disabled,
-                ]}
-              >
-                {syncing ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
-                ) : (
-                  <Text style={styles.updateButtonText}>
-                    {detail.detailComplete ? 'Actualizar' : 'Descargar'}
-                  </Text>
-                )}
-              </Pressable>
             </View>
 
             <View style={styles.inventoryHeading}>
@@ -749,13 +815,12 @@ export default function MaintenanceDetailScreen() {
         )}
       />
 
-      <EquipmentLocationCreatorModal
+      <MaintenanceLocationPickerModal
         visible={locationModalOpen}
-        parentOptions={clientLocationOptions}
-        initialParentId={mainLocationId}
+        options={availableLocationOptions}
         saving={savingLocation}
         onClose={() => setLocationModalOpen(false)}
-        onSubmit={createLocation}
+        onAdd={addLocationToMaintenance}
       />
     </>
   );
@@ -850,9 +915,6 @@ const styles = StyleSheet.create({
   heroMetaText: {
     color: colors.muted,
     fontSize: 11,
-  },
-  syncWrap: {
-    marginHorizontal: spacing.md,
   },
   errorBox: {
     marginHorizontal: spacing.md,
@@ -968,58 +1030,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 11,
   },
-  downloadCard: {
-    marginHorizontal: spacing.md,
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 1,
-    borderColor: colors.outlineSoft,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  downloadIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  downloadGlyph: {
-    color: colors.primary,
-    fontWeight: '900',
-    fontSize: 17,
-  },
-  downloadText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  downloadTitle: {
-    color: colors.text,
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  downloadDescription: {
-    color: colors.muted,
-    lineHeight: 16,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  updateButton: {
-    minHeight: sizing.touchTargetMin,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  updateButtonText: {
-    color: colors.primary,
-    fontWeight: '900',
-    fontSize: 10,
-  },
   inventoryHeading: {
     marginHorizontal: spacing.md,
     flexDirection: 'row',
@@ -1081,12 +1091,23 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
     marginBottom: 2,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceCard,
     borderWidth: 1,
     borderColor: colors.outlineSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  locationCardOpen: {
+    borderColor: colors.primary,
+  },
+  locationToggle: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 66,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -1118,6 +1139,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 3,
   },
+  locationChevron: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
   locationAddButton: {
     minHeight: sizing.touchTargetMin,
     paddingHorizontal: spacing.sm,
@@ -1127,6 +1153,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
+    marginRight: spacing.xs,
   },
   locationAddGlyph: {
     color: '#ffffff',
@@ -1137,6 +1164,19 @@ const styles = StyleSheet.create({
   locationAddText: {
     color: '#ffffff',
     fontWeight: '900',
+    fontSize: 10,
+  },
+  locationEmpty: {
+    marginHorizontal: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+    backgroundColor: colors.surfaceLow,
+  },
+  locationEmptyText: {
+    color: colors.muted,
+    textAlign: 'center',
     fontSize: 10,
   },
   emptyDevices: {
