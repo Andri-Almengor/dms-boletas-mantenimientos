@@ -40,6 +40,10 @@ function text(value: unknown) {
   return String(value ?? '').trim();
 }
 
+function inputText(value: unknown) {
+  return String(value ?? '');
+}
+
 function first(
   row: Record<string, unknown> | undefined,
   keys: string[],
@@ -235,7 +239,7 @@ function ProjectRelationField({
                 {fields.has('nombre') ? (
                   <LabeledInput
                     label="Nombre / identificador"
-                    value={text(item.nombre)}
+                    value={inputText(item.nombre)}
                     disabled={disabled}
                     onChange={(next) => patchItem(text(item.localId), { nombre: next })}
                   />
@@ -243,7 +247,7 @@ function ProjectRelationField({
                 {fields.has('serie') ? (
                   <LabeledInput
                     label="Serie"
-                    value={text(item.serie)}
+                    value={inputText(item.serie)}
                     disabled={disabled}
                     onChange={(next) => patchItem(text(item.localId), { serie: next })}
                   />

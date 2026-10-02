@@ -11,6 +11,14 @@ function text(value: unknown) {
   return String(value ?? '').trim();
 }
 
+function inputText(value: unknown) {
+  return String(value ?? '');
+}
+
+type NormalizeChecklistOptions = {
+  preserveDraftText?: boolean;
+};
+
 function normalized(value: unknown) {
   return text(value)
     .normalize('NFD')
@@ -63,16 +71,25 @@ export function projectChecklistGroupIdentity(input: RecordLike = {}) {
   return `name:${normalized(input.typeName || input.label || input.key || input.categoria || input.TipoDispositivo)}`;
 }
 
-function normalizeQuestion(item: RecordLike = {}, index = 0) {
+function normalizeQuestion(
+  item: RecordLike = {},
+  index = 0,
+  options: NormalizeChecklistOptions = {},
+) {
+  const rawLabel = item.label ?? item.Pregunta ?? '';
   return {
     id: text(item.id || item.questionId) || createLocalId('project-check'),
-    label: text(item.label || item.Pregunta),
+    label: options.preserveDraftText ? inputText(rawLabel) : text(rawLabel),
     responseType: responseType(item.responseType || item.TipoRespuesta),
     order: Number(item.order ?? item.Orden ?? (index + 1) * 10),
   };
 }
 
-function normalizeGroup(item: RecordLike = {}, index = 0) {
+function normalizeGroup(
+  item: RecordLike = {},
+  index = 0,
+  options: NormalizeChecklistOptions = {},
+) {
   const typeId = text(item.typeId || item.TipoDispositivoID);
   const typeName = text(item.typeName || item.label || item.key || item.TipoDispositivo);
   const countField = text(item.countField);
@@ -83,18 +100,29 @@ function normalizeGroup(item: RecordLike = {}, index = 0) {
     countField,
     order: Number(item.order ?? index * 10),
     questions: (Array.isArray(item.questions) ? item.questions : [])
-      .map((question, qIndex) => normalizeQuestion(question as RecordLike, qIndex))
+      .map((question, qIndex) => normalizeQuestion(
+        question as RecordLike,
+        qIndex,
+        options,
+      ))
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es')),
   };
   return typeId || typeName || countField ? group : null;
 }
 
-export function normalizeProjectChecklist(value: unknown) {
+export function normalizeProjectChecklist(
+  value: unknown,
+  options: NormalizeChecklistOptions = {},
+) {
   const parsed = parseObject(value, emptyProjectChecklist());
   return {
     version: 1,
     groups: (Array.isArray(parsed.groups) ? parsed.groups : [])
-      .map((group, index) => normalizeGroup(group as RecordLike, index))
+      .map((group, index) => normalizeGroup(
+        group as RecordLike,
+        index,
+        options,
+      ))
       .filter(Boolean) as NonNullable<ReturnType<typeof normalizeGroup>>[],
   };
 }
@@ -102,8 +130,9 @@ export function normalizeProjectChecklist(value: unknown) {
 export function projectChecklistGroupForCategory(
   checklist: unknown,
   category: RecordLike = {},
+  options: NormalizeChecklistOptions = {},
 ) {
-  const schema = normalizeProjectChecklist(checklist);
+  const schema = normalizeProjectChecklist(checklist, options);
   const target = projectChecklistGroupIdentity(category);
   return schema.groups.find((group) => group.id === target)
     || schema.groups.find((group) => group.typeId && group.typeId === text(category.typeId || category.TipoDispositivoID))
@@ -125,10 +154,15 @@ export function upsertProjectChecklistGroup(
   checklist: unknown,
   category: RecordLike,
   updater: (group: RecordLike & { questions: RecordLike[] }) => RecordLike & { questions: RecordLike[] },
+  options: NormalizeChecklistOptions = {},
 ) {
-  const schema = normalizeProjectChecklist(checklist);
+  const schema = normalizeProjectChecklist(checklist, options);
   const id = projectChecklistGroupIdentity(category);
-  const existing = projectChecklistGroupForCategory(schema, category) || {
+  const existing = projectChecklistGroupForCategory(
+    schema,
+    category,
+    options,
+  ) || {
     id,
     typeId: text(category.typeId),
     typeName: text(category.label || category.key || category.typeName),
@@ -139,10 +173,14 @@ export function upsertProjectChecklistGroup(
   const next = updater(existing);
   const groups = schema.groups.filter((group) => group.id !== existing.id && group.id !== id);
   if (next && Array.isArray(next.questions) && next.questions.length) {
-    const normalizedGroup = normalizeGroup({ ...next, id }, groups.length);
+    const normalizedGroup = normalizeGroup(
+      { ...next, id },
+      groups.length,
+      options,
+    );
     if (normalizedGroup) groups.push(normalizedGroup);
   }
-  return normalizeProjectChecklist({ version: 1, groups });
+  return normalizeProjectChecklist({ version: 1, groups }, options);
 }
 
 export function createProjectChecklistQuestion(
@@ -174,7 +212,10 @@ export function normalizeProjectProgress(value: unknown) {
     version: 1,
     answers: Object.fromEntries(Object.entries(answers).map(([key, raw]) => {
       const current = parseObject(raw, { value: raw as unknown });
-      return [key, { value: text(current.value), note: text(current.note) }];
+      return [key, {
+        value: text(current.value),
+        note: inputText(current.note),
+      }];
     })),
   };
 }
@@ -189,7 +230,7 @@ export function setProjectProgressAnswer(
   const type = responseType(question.responseType);
   const normalizedValue = normalizeProgressValue(value, type);
   const normalizedNote = type === PROJECT_CHECKLIST_RESPONSE_TYPES.PROGRESS && normalizedValue === 'PENDIENTE'
-    ? text(note)
+    ? inputText(note)
     : '';
   return {
     version: 1,
@@ -219,7 +260,7 @@ export function projectChecklistProgressForDevice(
       ...question,
       value,
       note: type === PROJECT_CHECKLIST_RESPONSE_TYPES.PROGRESS && value === 'PENDIENTE'
-        ? text(answer.note)
+        ? inputText(answer.note)
         : '',
       completed,
     };
