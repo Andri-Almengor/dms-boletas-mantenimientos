@@ -355,6 +355,19 @@ export async function saveLocalMaintenanceLocations(
       throw new Error('El mantenimiento no está disponible en este dispositivo.');
     }
 
+    const detailState = await transaction.getFirstAsync<{ complete: number }>(
+      `SELECT complete
+       FROM local_maintenance_detail_state
+       WHERE scope_key = ? AND maintenance_id = ?`,
+      scopeKey,
+      maintenanceIdValue,
+    );
+    if (!detailState?.complete) {
+      throw new Error(
+        'Descargue primero el contenido del mantenimiento antes de cambiar sus ubicaciones.',
+      );
+    }
+
     const merged = mergeJsonPayload(existing.payload_json, {
       MantenimientoID: maintenanceIdValue,
       maintenanceId: maintenanceIdValue,
