@@ -18,6 +18,14 @@ const deviceRepo = await readFile(
   new URL('../src/db/deviceRepository.ts', import.meta.url),
   'utf8',
 );
+const maintenanceRepo = await readFile(
+  new URL('../src/db/maintenanceRepository.ts', import.meta.url),
+  'utf8',
+);
+const syncButton = await readFile(
+  new URL('../src/components/SyncStatusCard.tsx', import.meta.url),
+  'utf8',
+);
 const resources = await readFile(
   new URL('../src/db/resourceRepository.ts', import.meta.url),
   'utf8',
@@ -43,8 +51,11 @@ test('detalle organiza inventario por ubicación y permite alta rápida de dispo
   assert.match(editor, /equipmentLocationId: initialEquipmentLocationId/);
 });
 
-test('alta rápida de ubicación reutiliza la misma ruta operacional y outbox', () => {
-  assert.match(detail, /saveLocalEquipmentLocation/);
+test('detalle vincula solo ubicaciones elegidas al mantenimiento y conserva alta inline del catálogo', () => {
+  assert.match(detail, /maintenanceEquipmentLocationsFromRecord/);
+  assert.match(detail, /saveLocalMaintenanceLocations/);
+  assert.match(maintenanceRepo, /route: 'maintenance\.update\.locations'/);
+  assert.match(maintenanceRepo, /maintenance:update-locations/);
   assert.match(deviceRepo, /saveLocalEquipmentLocationTx/);
   assert.match(deviceRepo, /route: 'equipmentLocations\.operational\.create'/);
   assert.match(deviceRepo, /entityType: 'equipmentLocation'/);
@@ -58,13 +69,25 @@ test('catálogo de ubicaciones se carga en lote y evita consulta por cada sede',
   assert.doesNotMatch(editor, /clientLocations\.map\([\s\S]*listResourceItems\([\s\S]*equipmentLocation/);
 });
 
-test('estado inactivo de sync siempre limpia syncing y BUSY no deja spinner permanente', () => {
+test('estado inactivo de sync siempre limpia syncing y la UI queda reducida a un botón redondo fuera del detalle', () => {
   assert.match(syncProvider, /if \(syncingRef\.current\) return;/);
   assert.match(syncProvider, /syncing: false,[\s\S]*status,/);
   const busyBranches = syncProvider.match(/result\.status === 'BUSY'/g) || [];
   assert.ok(busyBranches.length >= 3);
   assert.match(syncProvider, /result\.status === 'BUSY'[\s\S]*syncingRef\.current = false;[\s\S]*refreshStatus/);
-  assert.doesNotMatch(detail, /syncProgressText/);
+  assert.doesNotMatch(detail, /SyncStatusCard|syncProgressText/);
+  assert.match(syncButton, /Sincronizar ahora/);
+  assert.match(syncButton, /width: sizing\.touchTargetMin/);
+  assert.match(syncButton, /borderRadius: sizing\.touchTargetMin \/ 2/);
+});
+
+test('ubicaciones del mantenimiento son plegables y el editor no expone todo el catálogo del cliente', () => {
+  assert.match(detail, /openLocations/);
+  assert.match(detail, /toggleLocation\(section\.key\)/);
+  assert.match(detail, /accessibilityState=\{\{ expanded: open \}\}/);
+  assert.match(editor, /maintenanceEquipmentLocationsFromRecord/);
+  assert.match(editor, /linkedEquipmentLocationIds/);
+  assert.match(editor, /equipment: maintenanceEquipment/);
 });
 
 test('tema móvil reutiliza exactamente la familia visual light y dark de DMS Boletas', () => {
