@@ -685,17 +685,19 @@ export default function MaintenanceDetailScreen() {
               <View style={styles.quickSection}>
                 <Text style={styles.sectionEyebrow}>Acciones rápidas</Text>
                 <View style={styles.quickActions}>
-                  <Pressable
-                    onPress={() => setLocationModalOpen(true)}
-                    style={({ pressed }) => [
-                      styles.quickButton,
-                      styles.quickButtonPrimary,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text style={styles.quickIconPrimary}>⌖＋</Text>
-                    <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
-                  </Pressable>
+                  {detail.detailComplete ? (
+                    <Pressable
+                      onPress={() => setLocationModalOpen(true)}
+                      style={({ pressed }) => [
+                        styles.quickButton,
+                        styles.quickButtonPrimary,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.quickIconPrimary}>⌖＋</Text>
+                      <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
+                    </Pressable>
+                  ) : null}
 
                   {detail.detailComplete ? (
                     <Pressable
