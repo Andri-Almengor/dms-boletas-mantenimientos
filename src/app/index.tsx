@@ -286,7 +286,6 @@ export default function MaintenanceListScreen() {
                 ? 'No hay registros locales con los filtros actuales.'
                 : 'Sincronice una vez con conexión para preparar este dispositivo para trabajo offline.'}
             </Text>
-            {!appliedSearch && !activeFilters ? null : null}
           </View>
         ) : null}
         ListFooterComponent={loadingMore ? (
