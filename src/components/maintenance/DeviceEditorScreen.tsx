@@ -20,7 +20,10 @@ import {
   readLocalDeviceDetail,
   readLocalMaintenanceDetail,
 } from '@/db/maintenanceDetailRepository';
-import { getLocalMaintenance } from '@/db/maintenanceRepository';
+import {
+  getLocalMaintenance,
+  maintenanceEquipmentLocationsFromRecord,
+} from '@/db/maintenanceRepository';
 import {
   listResourceItems,
   listResourceItemsByParents,
@@ -280,6 +283,24 @@ export function DeviceEditorScreen({
           )),
         );
 
+        const linkedEquipmentLocationIds = new Set([
+          ...maintenanceEquipmentLocationsFromRecord(maintenanceRow)
+            .map((item) => item.id),
+          ...(localDetail?.dispositivos || [])
+            .map((item) => first(
+              item,
+              ['UbicacionEquipoID', 'ubicacionEquipoId', 'equipmentLocationId'],
+            )),
+          initialEquipmentLocationId,
+        ].filter(Boolean));
+
+        const maintenanceEquipment = equipment.filter((row) => (
+          linkedEquipmentLocationIds.has(first(
+            row,
+            ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
+          ))
+        ));
+
         const config = maintenanceConfig[0] || {};
         const rawQuestions = Array.isArray(config.questions)
           ? config.questions as RecordLike[]
@@ -364,7 +385,7 @@ export function DeviceEditorScreen({
             first(row, ['Estado'], 'ACTIVO').toUpperCase() !== 'INACTIVO'
           )),
           clientLocations,
-          equipment,
+          equipment: maintenanceEquipment,
           questions: questionRows,
         });
         setForm(nextForm);
@@ -811,28 +832,24 @@ export function DeviceEditorScreen({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
-          <View style={styles.hero}>
-            <Text style={styles.eyebrow}>
-              {mode === 'create'
-                ? 'Registro rápido'
-                : projectMode
-                  ? 'Proyecto'
-                  : 'Mantenimiento'}
-            </Text>
-            <Text style={styles.title}>
-              {mode === 'create' ? 'Nuevo dispositivo' : form.name || 'Editar dispositivo'}
-            </Text>
-            <Text style={styles.subtitle}>
-              {mode === 'create'
-                ? 'Ubicación, datos, checklist y evidencias en un solo flujo. Se guarda primero en este teléfono.'
-                : 'Edite únicamente los datos necesarios. Los cambios se guardan primero en este teléfono.'}
-            </Text>
-            {!detailComplete ? (
-              <Text style={styles.warningText}>
-                El detalle local no está completo. Descárguelo antes de editar dispositivos.
+          {mode === 'edit' ? (
+            <View style={styles.hero}>
+              <Text style={styles.eyebrow}>
+                {projectMode ? 'Proyecto' : 'Mantenimiento'}
               </Text>
-            ) : null}
-          </View>
+              <Text style={styles.title}>
+                {form.name || 'Editar dispositivo'}
+              </Text>
+              <Text style={styles.subtitle}>
+                Edite únicamente los datos necesarios. Los cambios se guardan primero en este teléfono.
+              </Text>
+              {!detailComplete ? (
+                <Text style={styles.warningText}>
+                  El detalle local no está completo. Descárguelo antes de editar dispositivos.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {form.equipmentLocationId ? (
             <View style={styles.activeLocation}>
@@ -862,14 +879,31 @@ export function DeviceEditorScreen({
           ) : null}
 
           <Section title="Identificación y ubicación">
+            <View style={styles.locationFieldHeader}>
+              <Text style={styles.fieldLabel}>Ubicación del equipo *</Text>
+              {canCreateLocation && !readOnly ? (
+                <Pressable
+                  onPress={openLocationCreator}
+                  style={({ pressed }) => [
+                    styles.inlineAddButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.inlineAddButtonText}>
+                    + Agregar ubicación
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+
             <OptionSheet
-              label="Ubicación del equipo *"
+              label=""
               value={form.equipmentLocationId}
               options={equipmentOptions}
               disabled={readOnly}
               placeholder={equipmentOptions.length
                 ? 'Seleccione una ubicación'
-                : 'Ubicaciones no descargadas'}
+                : 'Agregue una ubicación al mantenimiento'}
               onChange={(selected) => {
                 const id = String(selected);
                 const option = equipmentOptions.find((item) => item.value === id);
@@ -882,17 +916,6 @@ export function DeviceEditorScreen({
                 });
               }}
             />
-
-            {canCreateLocation && !readOnly ? (
-              <Pressable
-                onPress={openLocationCreator}
-                style={styles.inlineAddButton}
-              >
-                <Text style={styles.inlineAddButtonText}>
-                  + Agregar ubicación del equipo
-                </Text>
-              </Pressable>
-            ) : null}
 
             <OptionSheet
               label="Tipo de dispositivo *"
@@ -1517,19 +1540,30 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 11,
   },
+  locationFieldHeader: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
   inlineAddButton: {
-    alignSelf: 'flex-start',
-    minHeight: sizing.touchTargetMin,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 999,
     backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   inlineAddButtonText: {
     color: colors.primary,
     fontWeight: '900',
-    fontSize: 11,
+    fontSize: 9,
+  },
+  buttonPressed: {
+    opacity: 0.72,
   },
   footer: {
     position: 'absolute',
