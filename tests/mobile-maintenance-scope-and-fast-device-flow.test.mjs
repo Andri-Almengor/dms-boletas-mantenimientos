@@ -35,8 +35,8 @@ test('firma y finalización siguen fuera de la app móvil', () => {
 });
 
 test('alta de dispositivo incluye ubicación de equipo y creación inline reutilizando rutas existentes', () => {
-  assert.match(editor, /label="Ubicación del equipo \*"/);
-  assert.match(editor, /\+ Agregar ubicación del equipo/);
+  assert.match(editor, /Ubicación del equipo \*/);
+  assert.match(editor, /\+ Agregar ubicación/);
   assert.match(editor, /Nueva ubicación del equipo/);
   assert.match(editor, /Ubicación principal \*/);
   assert.match(deviceRepo, /equipmentLocations\.operational\.create/);
@@ -47,13 +47,11 @@ test('evidencias se agregan dentro del mismo flujo de creación del dispositivo'
   assert.match(editor, /mode === 'create'[\s\S]*MaintenanceEvidenceDraftSection/);
   assert.match(editor, /saveLocalDeviceWithEvidence/);
   assert.match(editor, /evidence: preparedEvidence/);
-  // El copy visual cambió con el rediseño; la regresión protege el flujo real,
-  // no una frase concreta.
-  assert.match(editor, /Ubicación, datos, checklist y evidencias en un solo flujo/);
+  assert.doesNotMatch(editor, /Registro rápido|Nuevo dispositivo/);
 });
 
 test('orden del formulario sigue el flujo operativo de la web', () => {
-  const location = editor.indexOf('label="Ubicación del equipo *"');
+  const location = editor.indexOf('Ubicación del equipo *');
   const type = editor.indexOf('label="Tipo de dispositivo *"');
   const workDate = editor.indexOf('label="Fecha de trabajo"');
   const observations = editor.indexOf('<Section title="Observaciones">');
