@@ -16,6 +16,80 @@ import { createLocalId } from '@/utils/localId';
 
 export type MaintenanceRecord = Record<string, unknown>;
 
+export type MaintenanceEquipmentLocation = {
+  id: string;
+  name: string;
+  locationId: string;
+  locationName: string;
+};
+
+function parseArray(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeMaintenanceLocation(item: unknown): MaintenanceEquipmentLocation | null {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    const id = item.trim();
+    return id ? { id, name: id, locationId: '', locationName: '' } : null;
+  }
+  if (typeof item !== 'object' || Array.isArray(item)) return null;
+  const row = item as MaintenanceRecord;
+  const id = String(
+    row.id
+      || row.value
+      || row.UbicacionEquipoID
+      || row.ubicacionEquipoId
+      || '',
+  ).trim();
+  if (!id || id.startsWith('legacy:')) return null;
+  return {
+    id,
+    name: String(
+      row.name
+        || row.nombre
+        || row.Nombre
+        || row.UbicacionEquipoNombre
+        || id,
+    ).trim(),
+    locationId: String(
+      row.locationId
+        || row.UbicacionID
+        || row.ubicacionId
+        || '',
+    ).trim(),
+    locationName: String(
+      row.locationName
+        || row.UbicacionNombre
+        || row.ubicacionNombre
+        || '',
+    ).trim(),
+  };
+}
+
+export function maintenanceEquipmentLocationsFromRecord(
+  record: MaintenanceRecord | null | undefined,
+) {
+  const raw = record?.UbicacionesEquipoJSON
+    ?? record?.ubicacionesEquipoJSON
+    ?? [];
+  const seen = new Set<string>();
+  return parseArray(raw)
+    .map(normalizeMaintenanceLocation)
+    .filter((item): item is MaintenanceEquipmentLocation => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+}
+
 function pick(record: MaintenanceRecord, keys: string[], fallback: unknown = '') {
   for (const key of keys) {
     const value = record?.[key];
@@ -248,6 +322,80 @@ export async function saveLocalMaintenance(
   });
 
   return { maintenanceId: savedId, operationId };
+}
+
+export async function saveLocalMaintenanceLocations(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  id: string,
+  locations: MaintenanceEquipmentLocation[],
+) {
+  const maintenanceIdValue = String(id || '').trim();
+  if (!maintenanceIdValue) {
+    throw new Error('No se indicó el mantenimiento.');
+  }
+
+  const normalized = locations
+    .map(normalizeMaintenanceLocation)
+    .filter((item): item is MaintenanceEquipmentLocation => Boolean(item));
+
+  let operationId = '';
+
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const existing = await transaction.getFirstAsync<{
+      payload_json: string;
+    }>(
+      `SELECT payload_json
+       FROM local_maintenances
+       WHERE scope_key = ? AND maintenance_id = ? AND tombstone = 0`,
+      scopeKey,
+      maintenanceIdValue,
+    );
+    if (!existing) {
+      throw new Error('El mantenimiento no está disponible en este dispositivo.');
+    }
+
+    const merged = mergeJsonPayload(existing.payload_json, {
+      MantenimientoID: maintenanceIdValue,
+      maintenanceId: maintenanceIdValue,
+      UbicacionesEquipoJSON: JSON.stringify(normalized),
+    });
+
+    await upsertMaintenanceRow(
+      transaction,
+      scopeKey,
+      merged,
+      'PENDING',
+    );
+
+    const maintenanceCreate = await findPendingEntityCreateOperation(
+      transaction,
+      scopeKey,
+      'maintenance',
+      maintenanceIdValue,
+    );
+
+    const queued = await enqueueOutboxOperationTx(transaction, {
+      scopeKey,
+      operationKind: 'UPDATE',
+      route: 'maintenance.update.locations',
+      entityType: 'maintenance',
+      entityId: maintenanceIdValue,
+      aggregateId: maintenanceIdValue,
+      payload: {
+        maintenanceId: maintenanceIdValue,
+        MantenimientoID: maintenanceIdValue,
+        UbicacionesEquipoJSON: normalized,
+        ubicacionesEquipoIds: normalized.map((item) => item.id),
+      },
+      priority: 50,
+      dedupeKey: `maintenance:update-locations:${maintenanceIdValue}`,
+      dependsOnOperationId: maintenanceCreate?.operation_id || '',
+    });
+    operationId = queued.operationId;
+  });
+
+  return { maintenanceId: maintenanceIdValue, operationId };
 }
 
 export async function getLocalMaintenance(
