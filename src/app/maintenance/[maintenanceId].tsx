@@ -1,19 +1,17 @@
 import { useAuth } from '@/auth/AuthProvider';
-import { OptionItem } from '@/components/forms/OptionSheet';
-import {
-  EquipmentLocationCreatorModal,
-  EquipmentLocationCreatorValue,
-} from '@/components/maintenance/EquipmentLocationCreatorModal';
 import { DeviceCard } from '@/components/maintenance/DeviceCard';
-import { SyncStatusCard } from '@/components/SyncStatusCard';
 import {
-  EquipmentLocationDraft,
-  saveLocalEquipmentLocation,
-} from '@/db/deviceRepository';
+  MaintenanceLocationOption,
+  MaintenanceLocationPickerModal,
+} from '@/components/maintenance/MaintenanceLocationPickerModal';
 import {
   LocalMaintenanceDetail,
   readLocalMaintenanceDetail,
 } from '@/db/maintenanceDetailRepository';
+import {
+  maintenanceEquipmentLocationsFromRecord,
+  saveLocalMaintenanceLocations,
+} from '@/db/maintenanceRepository';
 import {
   listResourceItems,
   listResourceItemsByParents,
@@ -28,13 +26,11 @@ import {
   normalizeMaintenanceStatus,
 } from '@/features/maintenance/maintenanceListDomain';
 import {
-  canCreateOperationalClientData,
   canEditMaintenance,
   maintenanceReadOnly,
 } from '@/features/maintenance/maintenancePermissions';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
-import { createLocalId } from '@/utils/localId';
 import {
   Redirect,
   Stack,
@@ -46,10 +42,12 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   SectionList,
   StyleSheet,
@@ -61,6 +59,7 @@ import {
 type RecordLike = Record<string, unknown>;
 
 type DeviceSection = {
+  key: string;
   locationId: string;
   title: string;
   subtitle: string;
@@ -175,6 +174,12 @@ export default function MaintenanceDetailScreen() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [search, setSearch] = useState('');
+  const [openLocations, setOpenLocations] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [downloadRequested, setDownloadRequested] = useState(false);
+  const [downloadingDetail, setDownloadingDetail] = useState(false);
+  const downloadPromptedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!dataScope || !maintenanceId) return;
@@ -250,6 +255,10 @@ export default function MaintenanceDetailScreen() {
     setDetail(null);
     setClientLocations([]);
     setEquipmentLocations([]);
+    setOpenLocations(new Set());
+    setDownloadRequested(false);
+    setDownloadingDetail(false);
+    downloadPromptedRef.current = false;
   }, [dataScope, maintenanceId]);
 
   useEffect(() => {
@@ -257,6 +266,11 @@ export default function MaintenanceDetailScreen() {
   }, [load, lastSuccessAt]);
 
   const maintenance = detail?.mantenimiento || {};
+
+  const maintenanceLocations = useMemo(
+    () => maintenanceEquipmentLocationsFromRecord(maintenance),
+    [maintenance],
+  );
 
   const clientLocationNameById = useMemo(
     () => new Map(
@@ -271,14 +285,15 @@ export default function MaintenanceDetailScreen() {
   const sections = useMemo<DeviceSection[]>(() => {
     const byId = new Map<string, DeviceSection>();
 
-    for (const location of equipmentLocations) {
-      const id = equipmentLocationId(location);
-      if (!id) continue;
-      const parentId = equipmentParentId(location);
-      byId.set(id, {
-        locationId: id,
-        title: equipmentLocationName(location),
-        subtitle: clientLocationNameById.get(parentId) || maintenanceLocation(maintenance),
+    for (const location of maintenanceLocations) {
+      if (!location.id) continue;
+      byId.set(location.id, {
+        key: location.id,
+        locationId: location.id,
+        title: location.name || 'Ubicación sin nombre',
+        subtitle: location.locationName
+          || clientLocationNameById.get(location.locationId)
+          || maintenanceLocation(maintenance),
         data: [],
       });
     }
@@ -288,6 +303,7 @@ export default function MaintenanceDetailScreen() {
       const name = deviceLocationName(item);
       const key = id || `unassigned:${name}`;
       const current = byId.get(key) || {
+        key,
         locationId: id,
         title: name,
         subtitle: maintenanceLocation(maintenance),
@@ -303,7 +319,7 @@ export default function MaintenanceDetailScreen() {
   }, [
     clientLocationNameById,
     detail?.dispositivos,
-    equipmentLocations,
+    maintenanceLocations,
     maintenance,
   ]);
 
@@ -331,19 +347,13 @@ export default function MaintenanceDetailScreen() {
       ));
   }, [search, sections]);
 
-  const evidenceCount = useMemo(
-    () => (detail?.dispositivos || []).reduce(
-      (sum, item) => sum + (
-        Array.isArray(item.Imagenes) ? item.Imagenes.length : 0
-      ),
-      0,
-    ),
-    [detail],
-  );
-
-  async function updateDetail() {
-    const refreshed = await refreshMaintenanceDetail(maintenanceId);
-    if (refreshed) await load();
+  function toggleLocation(key: string) {
+    setOpenLocations((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   function openDevice(item: RecordLike) {
@@ -373,32 +383,40 @@ export default function MaintenanceDetailScreen() {
     });
   }
 
-  async function createLocation(value: EquipmentLocationCreatorValue) {
-    if (!dataScope || savingLocation) return;
+  async function addLocationToMaintenance(location: MaintenanceLocationOption) {
+    if (!dataScope || savingLocation || !location?.id) return;
+    if (maintenanceLocations.some((item) => item.id === location.id)) {
+      setLocationModalOpen(false);
+      return;
+    }
+
     setSavingLocation(true);
     setLocationError('');
 
     try {
-      const draft: EquipmentLocationDraft = {
-        localId: createLocalId('ubicacion-equipo'),
-        parentLocationId: value.parentLocationId,
-        name: value.name,
-        description: value.description,
-      };
-      await saveLocalEquipmentLocation(
+      await saveLocalMaintenanceLocations(
         db,
         dataScope,
         maintenanceId,
-        draft,
+        [
+          ...maintenanceLocations,
+          {
+            id: location.id,
+            name: location.name,
+            locationId: location.locationId,
+            locationName: location.locationName,
+          },
+        ],
       );
       setLocationModalOpen(false);
+      setOpenLocations((current) => new Set(current).add(location.id));
       await refreshStatus();
       await load();
     } catch (error) {
       setLocationError(
         error instanceof Error
           ? error.message
-          : 'No se pudo guardar la ubicación en este dispositivo.',
+          : 'No se pudo agregar la ubicación al mantenimiento.',
       );
     } finally {
       setSavingLocation(false);
@@ -446,19 +464,24 @@ export default function MaintenanceDetailScreen() {
     ? Math.min(100, Math.round((registered / expected) * 100))
     : 0;
   const canEdit = canEditMaintenance(permissions);
-  const canCreateLocation = canCreateOperationalClientData(permissions);
   const readOnly = maintenanceReadOnly(permissions, maintenance.Estado);
-  const clientLocationOptions: OptionItem[] = clientLocations
-    .map((row) => ({
-      value: first(row, ['UbicacionID', 'ubicacionId', 'id']),
-      label: first(row, ['Nombre', 'Ubicacion'], 'Ubicación principal'),
-    }))
-    .filter((item) => item.value);
-  const mainLocationId = first(
-    maintenance,
-    ['UbicacionID', 'ubicacionId'],
-    clientLocationOptions[0]?.value || '',
+  const linkedLocationIds = new Set(
+    maintenanceLocations.map((item) => item.id),
   );
+  const availableLocationOptions: MaintenanceLocationOption[] = equipmentLocations
+    .map((row) => {
+      const id = equipmentLocationId(row);
+      const parentId = equipmentParentId(row);
+      return {
+        id,
+        name: equipmentLocationName(row),
+        locationId: parentId,
+        locationName: clientLocationNameById.get(parentId)
+          || maintenanceLocation(maintenance),
+        description: first(row, ['Descripcion', 'descripcion']),
+      };
+    })
+    .filter((item) => item.id && !linkedLocationIds.has(item.id));
 
   return (
     <>
