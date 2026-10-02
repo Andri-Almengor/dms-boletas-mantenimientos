@@ -5,16 +5,25 @@ import test from 'node:test';
 const list = await readFile(new URL('../src/app/index.tsx', import.meta.url), 'utf8');
 const detail = await readFile(new URL('../src/app/maintenance/[maintenanceId].tsx', import.meta.url), 'utf8');
 const deviceDetail = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId].tsx', import.meta.url), 'utf8');
-const newMaintenance = await readFile(new URL('../src/app/maintenance/new.tsx', import.meta.url), 'utf8');
 const editMaintenance = await readFile(new URL('../src/app/maintenance/[maintenanceId]/edit.tsx', import.meta.url), 'utf8');
 const newDevice = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/new.tsx', import.meta.url), 'utf8');
 const editDevice = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId]/edit.tsx', import.meta.url), 'utf8');
 
-test('Nuevo y Editar mantenimiento reutilizan MaintenanceEditorScreen', () => {
-  assert.match(newMaintenance, /MaintenanceEditorScreen/);
-  assert.match(newMaintenance, /mode="create"/);
+test('crear mantenimiento es exclusivo de la web', async () => {
+  assert.doesNotMatch(list, /maintenance\/new|canCreateMaintenance/);
+  await assert.rejects(
+    readFile(new URL('../src/app/maintenance/new.tsx', import.meta.url), 'utf8'),
+  );
+});
+
+test('editar mantenimiento existente sigue reutilizando MaintenanceEditorScreen sin modo create', async () => {
   assert.match(editMaintenance, /MaintenanceEditorScreen/);
-  assert.match(editMaintenance, /mode="edit"/);
+  assert.doesNotMatch(editMaintenance, /mode="create"|mode="edit"/);
+  const maintenanceEditor = await readFile(
+    new URL('../src/components/maintenance/MaintenanceEditorScreen.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(maintenanceEditor, /canCreateMaintenance|createMaintenanceEditorForm|mode:\s*'create'/);
 });
 
 test('Agregar y Editar dispositivo reutilizan DeviceEditorScreen', () => {
@@ -22,11 +31,6 @@ test('Agregar y Editar dispositivo reutilizan DeviceEditorScreen', () => {
   assert.match(newDevice, /mode="create"/);
   assert.match(editDevice, /DeviceEditorScreen/);
   assert.match(editDevice, /mode="edit"/);
-});
-
-test('lista solo muestra Nuevo mediante permiso existente', () => {
-  assert.match(list, /canCreateMaintenance\(permissions\)/);
-  assert.match(list, /maintenance\/new/);
 });
 
 test('detalle aplica permiso y solo lectura antes de exponer acciones de edición', () => {

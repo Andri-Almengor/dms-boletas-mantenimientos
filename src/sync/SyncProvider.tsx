@@ -129,8 +129,10 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
   const refreshStatus = useCallback(async () => {
     if (!user || !sessionToken) {
+      syncingRef.current = false;
       setState((current) => ({
         ...current,
+        syncing: false,
         status: 'SESSION_EXPIRED',
         phase: 'idle',
         message: messageFor('SESSION_EXPIRED', 0, 0),
@@ -139,6 +141,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
       }));
       return;
     }
+
+    // refreshStatus representa un estado inactivo. Mientras esta instancia
+    // posee una sincronización real, el progreso del coordinador sigue siendo
+    // la única fuente visual de verdad.
+    if (syncingRef.current) return;
 
     const scopeKey = buildLocalDataScope(user, permissions);
     const [pendingCount, conflictCount, network] = await Promise.all([
@@ -155,6 +162,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
     setState((current) => ({
       ...current,
+      syncing: false,
       status,
       phase: 'idle',
       message: messageFor(status, pendingCount, conflictCount),
@@ -251,6 +259,9 @@ export function SyncProvider({ children }: PropsWithChildren) {
         return;
       }
       if (result.status === 'BUSY') {
+        // El lease pertenece a otra instancia. Esta ejecución ya terminó:
+        // liberar primero el estado local evita dejar el spinner bloqueado.
+        syncingRef.current = false;
         await refreshStatus();
         return;
       }
@@ -323,6 +334,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
         await handleAuthenticationFailure();
         return;
       }
+      if (result.status === 'BUSY') {
+        syncingRef.current = false;
+        await refreshStatus();
+        return;
+      }
       applyResult(result);
     } catch (error) {
       if (isAuthenticationError(error)) {
@@ -385,6 +401,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
       });
       if (result.status === 'SESSION_EXPIRED') {
         await handleAuthenticationFailure();
+        return false;
+      }
+      if (result.status === 'BUSY') {
+        syncingRef.current = false;
+        await refreshStatus();
         return false;
       }
       applyResult(result);

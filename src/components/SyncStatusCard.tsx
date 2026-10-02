@@ -10,14 +10,54 @@ import {
 } from 'react-native';
 
 const STATUS_PRESENTATION = {
-  UPDATED: { icon: '✓', title: 'Actualizado' },
-  PENDING: { icon: '⏳', title: 'Pendiente' },
-  OFFLINE: { icon: '☁', title: 'Sin conexión' },
-  PAUSED: { icon: '🌙', title: 'Fuera de horario' },
-  ERROR: { icon: '⚠', title: 'Error' },
-  CONFLICT: { icon: '⚠', title: 'Conflicto' },
-  SESSION_EXPIRED: { icon: '🔐', title: 'Sesión expirada' },
-  BUSY: { icon: '↻', title: 'Sincronizando' },
+  UPDATED: {
+    icon: '✓',
+    title: 'Actualizado',
+    background: colors.successSoft,
+    foreground: colors.success,
+  },
+  PENDING: {
+    icon: '↑',
+    title: 'Cambios pendientes',
+    background: colors.warningSoft,
+    foreground: colors.warning,
+  },
+  OFFLINE: {
+    icon: '☁',
+    title: 'Sin conexión',
+    background: colors.surfaceHigh,
+    foreground: colors.muted,
+  },
+  PAUSED: {
+    icon: '◷',
+    title: 'Fuera de horario',
+    background: colors.surfaceHigh,
+    foreground: colors.muted,
+  },
+  ERROR: {
+    icon: '!',
+    title: 'Error de sincronización',
+    background: colors.dangerSoft,
+    foreground: colors.danger,
+  },
+  CONFLICT: {
+    icon: '!',
+    title: 'Conflicto pendiente',
+    background: colors.dangerSoft,
+    foreground: colors.danger,
+  },
+  SESSION_EXPIRED: {
+    icon: '!',
+    title: 'Sesión expirada',
+    background: colors.dangerSoft,
+    foreground: colors.danger,
+  },
+  BUSY: {
+    icon: '↻',
+    title: 'Sincronizando',
+    background: colors.primarySoft,
+    foreground: colors.primary,
+  },
 } as const;
 
 export function SyncStatusCard() {
@@ -30,79 +70,155 @@ export function SyncStatusCard() {
   } = useSync();
 
   const presentation = STATUS_PRESENTATION[status];
+  const title = pendingCount > 0 && status !== 'BUSY'
+    ? `${pendingCount} cambio${pendingCount === 1 ? '' : 's'} pendiente${pendingCount === 1 ? '' : 's'}`
+    : presentation.title;
 
   return (
-    <View style={styles.card}>
-      <View style={styles.heading}>
-        <Text style={styles.icon}>{presentation.icon}</Text>
-        <View style={styles.headingText}>
-          <Text style={styles.title}>{presentation.title}</Text>
-          <Text style={styles.message}>{message}</Text>
+    <View
+      style={styles.card}
+      accessibilityLiveRegion="polite"
+    >
+      <View style={styles.mainRow}>
+        <View style={[
+          styles.iconBox,
+          { backgroundColor: presentation.background },
+        ]}>
+          {syncing ? (
+            <ActivityIndicator
+              color={presentation.foreground}
+              size="small"
+            />
+          ) : (
+            <Text style={[
+              styles.icon,
+              { color: presentation.foreground },
+            ]}>
+              {presentation.icon}
+            </Text>
+          )}
         </View>
+
+        <View style={styles.copy}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.message} numberOfLines={2}>
+            {message}
+          </Text>
+        </View>
+
+        <Pressable
+          onPress={syncNow}
+          disabled={syncing}
+          style={({ pressed }) => [
+            styles.button,
+            pressed && !syncing && styles.buttonPressed,
+            syncing && styles.buttonDisabled,
+          ]}
+        >
+          <Text style={styles.buttonGlyph}>{syncing ? '↻' : '↕'}</Text>
+          <Text style={styles.buttonText}>
+            {syncing ? 'En curso' : 'Sincronizar ahora'}
+          </Text>
+        </Pressable>
       </View>
 
-      {pendingCount > 0 && status !== 'PENDING' ? (
-        <Text style={styles.pending}>
-          {pendingCount} cambio{pendingCount === 1 ? '' : 's'} pendiente{pendingCount === 1 ? '' : 's'}
+      <View style={styles.scheduleRow}>
+        <Text style={styles.scheduleIcon}>◷</Text>
+        <Text style={styles.caption}>
+          Automática 07:00–17:00 (Costa Rica) · Manual disponible siempre
         </Text>
-      ) : null}
-
-      <Pressable
-        onPress={syncNow}
-        disabled={syncing}
-        style={({ pressed }) => [
-          styles.button,
-          pressed && !syncing && styles.buttonPressed,
-          syncing && styles.buttonDisabled,
-        ]}
-      >
-        {syncing ? (
-          <>
-            <ActivityIndicator color="#ffffff" />
-            <Text style={styles.buttonText}>Sincronizando…</Text>
-          </>
-        ) : (
-          <Text style={styles.buttonText}>Sincronizar ahora</Text>
-        )}
-      </Pressable>
-
-      <Text style={styles.caption}>
-        Automática: 07:00–17:00 · Manual: 24 horas
-      </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    padding: spacing.md,
+    padding: spacing.sm,
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceCard,
-    gap: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.outlineSoft,
-  },
-  heading: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     gap: spacing.sm,
   },
-  headingText: { flex: 1, gap: 2 },
-  icon: { fontSize: 20 },
-  title: { color: colors.text, fontWeight: '800', fontSize: 17 },
-  message: { color: colors.muted, lineHeight: 20 },
-  pending: { color: colors.warning, fontWeight: '700' },
-  button: {
-    minHeight: sizing.buttonHeight,
+  mainRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  iconBox: {
+    width: 42,
+    height: 42,
     borderRadius: radius.sm,
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  icon: {
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  title: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 14,
+  },
+  message: {
+    color: colors.muted,
+    lineHeight: 16,
+    fontSize: 10,
+  },
+  button: {
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  buttonPressed: {
+    opacity: 0.78,
+  },
+  buttonDisabled: {
+    opacity: 0.55,
+  },
+  buttonGlyph: {
+    color: colors.primary,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  buttonText: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 9,
+  },
+  scheduleRow: {
+    minHeight: 32,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceLow,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
   },
-  buttonPressed: { opacity: 0.86 },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
-  caption: { color: colors.muted, fontSize: 12, textAlign: 'center' },
+  scheduleIcon: {
+    color: colors.muted,
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  caption: {
+    flex: 1,
+    color: colors.muted,
+    fontSize: 9,
+    lineHeight: 13,
+  },
 });

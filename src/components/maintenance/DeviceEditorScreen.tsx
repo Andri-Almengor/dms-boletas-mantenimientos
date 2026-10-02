@@ -1,18 +1,30 @@
 import { NativeDateField } from '@/components/forms/NativeDateField';
 import { OptionItem, OptionSheet } from '@/components/forms/OptionSheet';
 import { DynamicQuestionField } from '@/components/maintenance/DynamicQuestionField';
+import {
+  EquipmentLocationCreatorModal,
+  EquipmentLocationCreatorValue,
+} from '@/components/maintenance/EquipmentLocationCreatorModal';
+import {
+  DraftMaintenanceEvidence,
+  MaintenanceEvidenceDraftSection,
+} from '@/components/maintenance/MaintenanceEvidenceDraftSection';
 import { ProjectProgressEditor } from '@/components/maintenance/ProjectProgressEditor';
 import { useAuth } from '@/auth/AuthProvider';
 import {
   deleteLocalDevice,
-  saveLocalDevice,
+  EquipmentLocationDraft,
+  saveLocalDeviceWithEvidence,
 } from '@/db/deviceRepository';
 import {
   readLocalDeviceDetail,
   readLocalMaintenanceDetail,
 } from '@/db/maintenanceDetailRepository';
 import { getLocalMaintenance } from '@/db/maintenanceRepository';
-import { listResourceItems } from '@/db/resourceRepository';
+import {
+  listResourceItems,
+  listResourceItemsByParents,
+} from '@/db/resourceRepository';
 import {
   createDeviceEditorForm,
   deviceCompletion,
@@ -23,6 +35,7 @@ import {
   validateDeviceEditor,
 } from '@/features/maintenance/maintenanceEditorDomain';
 import {
+  canCreateOperationalClientData,
   canDeleteMaintenanceDevice,
   canEditMaintenance,
   maintenanceReadOnly,
@@ -40,6 +53,12 @@ import {
   canonicalMaintenanceCategoryName,
   MAINTENANCE_CATEGORIES,
 } from '@/features/maintenance/maintenanceCategories';
+import {
+  createEvidencePayload,
+  projectEvidenceTargets,
+} from '@/features/maintenance/maintenanceEvidence';
+import { removeLocalEvidenceFile } from '@/services/maintenanceEvidenceStorage';
+import { createLocalId } from '@/utils/localId';
 import { formatMacAddressInput } from '@/utils/macAddress';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
@@ -49,9 +68,11 @@ import {
   useRouter,
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -69,6 +90,8 @@ type Props = {
   mode: 'create' | 'edit';
   maintenanceId: string;
   deviceId?: string;
+  initialEquipmentLocationId?: string;
+  initialEquipmentLocationName?: string;
 };
 
 type RecordLike = Record<string, unknown>;
@@ -79,6 +102,7 @@ type CatalogState = {
   models: RecordLike[];
   relations: RecordLike[];
   users: RecordLike[];
+  clientLocations: RecordLike[];
   equipment: RecordLike[];
   questions: MaintenanceQuestion[];
 };
@@ -89,6 +113,7 @@ const EMPTY_CATALOGS: CatalogState = {
   models: [],
   relations: [],
   users: [],
+  clientLocations: [],
   equipment: [],
   questions: [],
 };
@@ -149,9 +174,12 @@ export function DeviceEditorScreen({
   mode,
   maintenanceId,
   deviceId = '',
+  initialEquipmentLocationId = '',
+  initialEquipmentLocationName = '',
 }: Props) {
   const db = useSQLiteContext();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     user,
     loading: authLoading,
@@ -167,6 +195,16 @@ export function DeviceEditorScreen({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [draftEvidence, setDraftEvidence] = useState<DraftMaintenanceEvidence[]>([]);
+  const draftEvidenceRef = useRef<DraftMaintenanceEvidence[]>([]);
+  const draftDeviceIdRef = useRef(
+    mode === 'create' ? createLocalId('dispositivo') : deviceId,
+  );
+  const savedDraftRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [locationDraft, setLocationDraft] = useState<EquipmentLocationDraft | null>(null);
 
   const allowed = canEditMaintenance(permissions);
   const readOnly = maintenance
@@ -191,13 +229,17 @@ export function DeviceEditorScreen({
         }
 
         const locationId = first(maintenanceRow, ['UbicacionID', 'ubicacionId']);
+        const clientId = first(
+          maintenanceRow,
+          ['ClienteID', 'ClienteRef', 'clienteId'],
+        );
         const [
           deviceTypes,
           manufacturers,
           models,
           relations,
           users,
-          equipment,
+          clientLocationRows,
           maintenanceConfig,
         ] = await Promise.all([
           listResourceItems(db, dataScope, 'deviceType'),
@@ -205,11 +247,38 @@ export function DeviceEditorScreen({
           listResourceItems(db, dataScope, 'model'),
           listResourceItems(db, dataScope, 'deviceManufacturerRelation'),
           listResourceItems(db, dataScope, 'assignableUser'),
-          locationId
-            ? listResourceItems(db, dataScope, 'equipmentLocation', locationId)
+          clientId
+            ? listResourceItems(db, dataScope, 'clientLocation', clientId)
             : Promise.resolve([]),
           listResourceItems(db, dataScope, 'maintenanceConfig'),
         ]);
+
+        const fallbackLocation = locationId
+          && !clientLocationRows.some((row) => (
+            first(row, ['UbicacionID', 'ubicacionId', 'id']) === locationId
+          ))
+          ? [{
+              UbicacionID: locationId,
+              Nombre: first(
+                maintenanceRow,
+                ['Ubicacion', 'ubicacion'],
+                'Ubicación del mantenimiento',
+              ),
+            }]
+          : [];
+        const clientLocations = [
+          ...clientLocationRows,
+          ...fallbackLocation,
+        ];
+        const equipment = await listResourceItemsByParents(
+          db,
+          dataScope,
+          'equipmentLocation',
+          clientLocations.map((row) => first(
+            row,
+            ['UbicacionID', 'ubicacionId', 'id'],
+          )),
+        );
 
         const config = maintenanceConfig[0] || {};
         const rawQuestions = Array.isArray(config.questions)
@@ -265,6 +334,24 @@ export function DeviceEditorScreen({
           };
         }
 
+        if (mode === 'create' && initialEquipmentLocationId) {
+          const presetLocation = equipment.find((row) => (
+            first(
+              row,
+              ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
+            ) === initialEquipmentLocationId
+          ));
+          nextForm = {
+            ...nextForm,
+            equipmentLocationId: initialEquipmentLocationId,
+            equipmentLocationName: initialEquipmentLocationName
+              || first(
+                presetLocation,
+                ['Nombre', 'UbicacionEquipo', 'zona'],
+              ),
+          };
+        }
+
         if (!active) return;
         setMaintenance(maintenanceRow);
         setDetailComplete(Boolean(localDetail?.detailComplete));
@@ -276,6 +363,7 @@ export function DeviceEditorScreen({
           users: users.filter((row) => (
             first(row, ['Estado'], 'ACTIVO').toUpperCase() !== 'INACTIVO'
           )),
+          clientLocations,
           equipment,
           questions: questionRows,
         });
@@ -292,7 +380,27 @@ export function DeviceEditorScreen({
 
     load().catch(() => undefined);
     return () => { active = false; };
-  }, [db, dataScope, user, maintenanceId, deviceId, mode]);
+  }, [
+    db,
+    dataScope,
+    user,
+    maintenanceId,
+    deviceId,
+    mode,
+    initialEquipmentLocationId,
+    initialEquipmentLocationName,
+  ]);
+
+  useEffect(() => {
+    draftEvidenceRef.current = draftEvidence;
+  }, [draftEvidence]);
+
+  useEffect(() => () => {
+    if (savedDraftRef.current) return;
+    for (const item of draftEvidenceRef.current) {
+      removeLocalEvidenceFile(item.localUri).catch(() => undefined);
+    }
+  }, []);
 
   const maintenanceType = first(
     maintenance || undefined,
@@ -433,7 +541,7 @@ export function DeviceEditorScreen({
     setForm((current) => current ? { ...current, ...values } : current);
   }
 
-  async function save() {
+  async function save(addAnother = false) {
     if (!form || !maintenance || readOnly || saving) return;
     const currentForm = form;
     const currentMaintenance = maintenance;
@@ -448,21 +556,109 @@ export function DeviceEditorScreen({
       return;
     }
 
+    const requestedDeviceId = currentForm.id
+      || draftDeviceIdRef.current
+      || createLocalId('dispositivo');
+    draftDeviceIdRef.current = requestedDeviceId;
+
+    const devicePayload = {
+      ...deviceEditorPayload(
+        currentForm,
+        maintenanceId,
+        questions,
+        currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
+      ),
+      EvidenciaMantenimientoID: requestedDeviceId,
+      deviceId: requestedDeviceId,
+    };
+    const evidenceTargets = projectMode
+      ? projectEvidenceTargets(devicePayload)
+      : [];
+
+    const preparedEvidence = mode === 'create'
+      ? draftEvidence.map((item) => {
+          const target = projectMode
+            ? evidenceTargets.find(
+                (candidate) => candidate.value === item.targetValue,
+              ) || evidenceTargets[0] || null
+            : null;
+          const patch = createEvidencePayload({
+            evidenceId: item.evidenceId,
+            maintenanceId,
+            deviceId: requestedDeviceId,
+            asset: item.asset,
+            type: item.type,
+            note: item.note,
+            projectMode,
+            target,
+            capturedAt: item.capturedAt,
+          });
+          return {
+            localFileId: item.localFileId,
+            localFile: {
+              localUri: item.localUri,
+              fileName: item.fileName,
+              mimeType: item.mimeType,
+              fileSize: item.size,
+            },
+            patch: {
+              ...patch,
+              Size: item.size,
+              size: item.size,
+            },
+          };
+        })
+      : [];
+
     setSaving(true);
     setError('');
+    setNotice('');
     try {
-      const result = await saveLocalDevice(
+      const result = await saveLocalDeviceWithEvidence(
         db,
         dataScope,
         maintenanceId,
-        deviceEditorPayload(
-          currentForm,
-          maintenanceId,
-          questions,
-          currentMaintenance.ProyectoChecklistJSON || currentMaintenance.projectChecklist,
-        ),
+        devicePayload,
+        {
+          equipmentLocationDraft: (
+            locationDraft
+            && locationDraft.localId === currentForm.equipmentLocationId
+          ) ? locationDraft : null,
+          evidence: preparedEvidence,
+        },
       );
+
+      savedDraftRef.current = true;
+      draftEvidenceRef.current = [];
+      setDraftEvidence([]);
       await refreshStatus();
+
+      if (addAnother && mode === 'create') {
+        const nextBase = createDeviceEditorForm(maintenanceType);
+        const nextCategory = selectedCategories[0]?.key || nextBase.category;
+        const nextType = allowedTypeOptions.find(
+          (item) => item.label === nextCategory,
+        );
+        setForm({
+          ...nextBase,
+          equipmentLocationId: currentForm.equipmentLocationId,
+          equipmentLocationName: currentForm.equipmentLocationName,
+          workDate: currentForm.workDate,
+          technicianIds: [...currentForm.technicianIds],
+          category: nextCategory,
+          deviceTypeId: nextType?.value?.startsWith('legacy:')
+            ? ''
+            : nextType?.value || '',
+          answers: {},
+        });
+        setLocationDraft(null);
+        draftDeviceIdRef.current = createLocalId('dispositivo');
+        savedDraftRef.current = false;
+        setNotice('Dispositivo guardado. Puede registrar el siguiente.');
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+        return;
+      }
+
       router.replace({
         pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
         params: {
@@ -516,15 +712,60 @@ export function DeviceEditorScreen({
     );
   }
 
+  const clientLocationOptions = optionList(
+    catalogs.clientLocations,
+    ['UbicacionID', 'ubicacionId', 'id'],
+    ['Nombre', 'Ubicacion'],
+  );
+  const locationNameById = new Map(
+    clientLocationOptions.map((item) => [item.value, item.label]),
+  );
   const equipmentOptions = ensureOption(
-    optionList(
-      catalogs.equipment,
-      ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
-      ['Nombre', 'UbicacionEquipo', 'zona'],
-    ),
+    catalogs.equipment.map((row) => {
+      const parentId = first(
+        row,
+        ['UbicacionID', 'ubicacionId', 'locationId'],
+      );
+      return {
+        value: first(
+          row,
+          ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
+        ),
+        label: first(
+          row,
+          ['Nombre', 'UbicacionEquipo', 'zona'],
+          'Sin nombre',
+        ),
+        note: catalogs.clientLocations.length > 1
+          ? locationNameById.get(parentId) || ''
+          : '',
+      };
+    }).filter((item) => item.value),
     form.equipmentLocationId,
     form.equipmentLocationName,
   );
+  const canCreateLocation = canCreateOperationalClientData(permissions);
+
+  function openLocationCreator() {
+    setLocationModalOpen(true);
+  }
+
+  function acceptLocationDraft(value: EquipmentLocationCreatorValue) {
+    const draft: EquipmentLocationDraft = {
+      localId: createLocalId('ubicacion-equipo'),
+      parentLocationId: value.parentLocationId,
+      name: value.name,
+      description: value.description,
+    };
+    setLocationDraft(draft);
+    patch({
+      equipmentLocationId: draft.localId,
+      equipmentLocationName: draft.name,
+    });
+    setLocationModalOpen(false);
+    setError('');
+  }
+
   const technicianOptions = optionList(
     catalogs.users,
     ['UsuarioID', 'userId', 'id'],
@@ -550,6 +791,12 @@ export function DeviceEditorScreen({
     form.modelName,
   );
   const typeValue = form.deviceTypeId || `legacy:${form.category}`;
+  const editorDeviceRecord = deviceEditorPayload(
+    form,
+    maintenanceId,
+    questions,
+    maintenance.ProyectoChecklistJSON || maintenance.projectChecklist,
+  );
 
   return (
     <>
@@ -560,18 +807,25 @@ export function DeviceEditorScreen({
       />
       <View style={styles.screen}>
         <ScrollView
+          ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>
-              {projectMode ? 'Proyecto' : 'Mantenimiento'}
+              {mode === 'create'
+                ? 'Registro rápido'
+                : projectMode
+                  ? 'Proyecto'
+                  : 'Mantenimiento'}
             </Text>
             <Text style={styles.title}>
               {mode === 'create' ? 'Nuevo dispositivo' : form.name || 'Editar dispositivo'}
             </Text>
             <Text style={styles.subtitle}>
-              Los cambios se guardan en SQLite y se sincronizan después.
+              {mode === 'create'
+                ? 'Ubicación, datos, checklist y evidencias en un solo flujo. Se guarda primero en este teléfono.'
+                : 'Edite únicamente los datos necesarios. Los cambios se guardan primero en este teléfono.'}
             </Text>
             {!detailComplete ? (
               <Text style={styles.warningText}>
@@ -580,13 +834,34 @@ export function DeviceEditorScreen({
             ) : null}
           </View>
 
+          {form.equipmentLocationId ? (
+            <View style={styles.activeLocation}>
+              <View style={styles.activeLocationIcon}>
+                <Text style={styles.activeLocationGlyph}>⌖</Text>
+              </View>
+              <View style={styles.activeLocationCopy}>
+                <Text style={styles.activeLocationLabel}>Ubicación activa · fijada</Text>
+                <Text style={styles.activeLocationName} numberOfLines={1}>
+                  {form.equipmentLocationName || 'Ubicación seleccionada'}
+                </Text>
+              </View>
+              <Text style={styles.activeLocationCheck}>✓</Text>
+            </View>
+          ) : null}
+
           {error ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
-          <Section title="Identificación">
+          {notice ? (
+            <View style={styles.successBox}>
+              <Text style={styles.successText}>{notice}</Text>
+            </View>
+          ) : null}
+
+          <Section title="Identificación y ubicación">
             <OptionSheet
               label="Ubicación del equipo *"
               value={form.equipmentLocationId}
@@ -598,6 +873,9 @@ export function DeviceEditorScreen({
               onChange={(selected) => {
                 const id = String(selected);
                 const option = equipmentOptions.find((item) => item.value === id);
+                if (locationDraft?.localId !== id) {
+                  setLocationDraft(null);
+                }
                 patch({
                   equipmentLocationId: id,
                   equipmentLocationName: option?.label || '',
@@ -605,23 +883,16 @@ export function DeviceEditorScreen({
               }}
             />
 
-            <NativeDateField
-              label="Fecha de trabajo"
-              value={form.workDate}
-              disabled={readOnly}
-              onChange={(workDate) => patch({ workDate })}
-            />
-
-            <OptionSheet
-              label="Técnicos"
-              values={form.technicianIds}
-              options={technicianOptions}
-              multiple
-              disabled={readOnly}
-              onChange={(selected) => patch({
-                technicianIds: Array.isArray(selected) ? selected : [String(selected)],
-              })}
-            />
+            {canCreateLocation && !readOnly ? (
+              <Pressable
+                onPress={openLocationCreator}
+                style={styles.inlineAddButton}
+              >
+                <Text style={styles.inlineAddButtonText}>
+                  + Agregar ubicación del equipo
+                </Text>
+              </Pressable>
+            ) : null}
 
             <OptionSheet
               label="Tipo de dispositivo *"
@@ -698,6 +969,26 @@ export function DeviceEditorScreen({
               placeholder="AA:BB:CC:DD:EE:FF"
               onChange={(macAddress) => patch({
                 macAddress: formatMacAddressInput(macAddress),
+              })}
+            />
+          </Section>
+
+          <Section title="Fecha y grupo de trabajo">
+            <NativeDateField
+              label="Fecha de trabajo"
+              value={form.workDate}
+              disabled={readOnly}
+              onChange={(workDate) => patch({ workDate })}
+            />
+
+            <OptionSheet
+              label="Técnicos"
+              values={form.technicianIds}
+              options={technicianOptions}
+              multiple
+              disabled={readOnly}
+              onChange={(selected) => patch({
+                technicianIds: Array.isArray(selected) ? selected : [String(selected)],
               })}
             />
           </Section>
@@ -826,66 +1117,122 @@ export function DeviceEditorScreen({
             />
           </Section>
 
-          <View style={styles.stageNotice}>
-            <Text style={styles.stageNoticeTitle}>Evidencias</Text>
-            <Text style={styles.stageNoticeText}>
-              {mode === 'create'
-                ? 'Guarde primero el dispositivo. Después podrá tomar fotos, grabar videos o seleccionar evidencias desde su detalle, incluso sin conexión.'
-                : 'Las evidencias se administran desde el detalle del dispositivo y siempre se guardan primero en el almacenamiento local.'}
-            </Text>
-            {mode === 'edit' && form.id ? (
-              <Pressable
-                disabled={saving}
-                onPress={() => router.push({
-                  pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
-                  params: {
-                    maintenanceId,
-                    deviceId: form.id,
-                  },
-                })}
-                style={styles.evidenceButton}
-              >
-                <Text style={styles.evidenceButtonText}>Gestionar evidencias</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          {mode === 'create' ? (
+            <MaintenanceEvidenceDraftSection
+              maintenanceType={maintenanceType}
+              device={editorDeviceRecord}
+              items={draftEvidence}
+              onChange={setDraftEvidence}
+              disabled={readOnly || saving}
+            />
+          ) : (
+            <View style={styles.stageNotice}>
+              <Text style={styles.stageNoticeTitle}>Evidencias</Text>
+              <Text style={styles.stageNoticeText}>
+                Las evidencias existentes continúan disponibles desde el detalle del dispositivo.
+              </Text>
+              {form.id ? (
+                <Pressable
+                  disabled={saving}
+                  onPress={() => router.push({
+                    pathname: '/maintenance/[maintenanceId]/device/[deviceId]',
+                    params: {
+                      maintenanceId,
+                      deviceId: form.id,
+                    },
+                  })}
+                  style={styles.evidenceButton}
+                >
+                  <Text style={styles.evidenceButtonText}>Gestionar evidencias</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
         </ScrollView>
 
         {!readOnly ? (
-          <View style={styles.footer}>
-            {mode === 'edit' && canDeleteMaintenanceDevice(permissions, maintenance.Estado) ? (
+          <View style={[
+            styles.footer,
+            { paddingBottom: Math.max(spacing.sm, insets.bottom + spacing.xs) },
+          ]}>
+            {mode === 'create' ? (
               <Pressable
-                onPress={requestDelete}
-                disabled={saving}
-                style={styles.deleteButton}
+                onPress={() => save(true)}
+                disabled={saving || !detailComplete}
+                style={[
+                  styles.continueButton,
+                  (saving || !detailComplete) && styles.disabled,
+                ]}
               >
-                <Text style={styles.deleteText}>Eliminar</Text>
+                <Text style={styles.continueButtonGlyph}>⊕</Text>
+                <Text style={styles.continueButtonText}>
+                  Guardar y agregar otro
+                </Text>
               </Pressable>
-            ) : (
+            ) : null}
+
+            <View style={styles.footerRow}>
               <Pressable
-                onPress={() => router.back()}
-                disabled={saving}
-                style={styles.secondaryButton}
+                onPress={() => save(false)}
+                disabled={saving || !detailComplete}
+                style={[
+                  mode === 'create'
+                    ? styles.saveSecondaryButton
+                    : styles.primaryButton,
+                  (saving || !detailComplete) && styles.disabled,
+                ]}
               >
-                <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                {saving ? (
+                  <ActivityIndicator
+                    color={mode === 'create' ? colors.primary : '#fff'}
+                    size="small"
+                  />
+                ) : null}
+                <Text style={[
+                  mode === 'create'
+                    ? styles.saveSecondaryButtonText
+                    : styles.primaryButtonText,
+                ]}>
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </Text>
               </Pressable>
-            )}
-            <Pressable
-              onPress={save}
-              disabled={saving || !detailComplete}
-              style={[
-                styles.primaryButton,
-                (saving || !detailComplete) && styles.disabled,
-              ]}
-            >
-              {saving ? <ActivityIndicator color="#fff" /> : null}
-              <Text style={styles.primaryButtonText}>
-                {saving ? 'Guardando…' : 'Guardar localmente'}
-              </Text>
-            </Pressable>
+
+              {mode === 'edit' && canDeleteMaintenanceDevice(permissions, maintenance.Estado) ? (
+                <Pressable
+                  onPress={requestDelete}
+                  disabled={saving}
+                  style={styles.deleteButton}
+                >
+                  <Text style={styles.deleteText}>Eliminar</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => router.back()}
+                  disabled={saving}
+                  style={styles.secondaryButton}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         ) : null}
       </View>
+
+      <EquipmentLocationCreatorModal
+        visible={locationModalOpen}
+        parentOptions={clientLocationOptions}
+        title="Nueva ubicación del equipo"
+        parentLabel="Ubicación principal *"
+        initialParentId={first(
+          maintenance || undefined,
+          ['UbicacionID', 'ubicacionId'],
+          clientLocationOptions[0]?.value || '',
+        )}
+        saving={saving}
+        onClose={() => setLocationModalOpen(false)}
+        onSubmit={acceptLocationDraft}
+      />
     </>
   );
 }
@@ -983,7 +1330,7 @@ function ChoiceField({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: 110 },
+  content: { padding: spacing.md, gap: spacing.md, paddingBottom: 170 },
   center: {
     flex: 1,
     backgroundColor: colors.surface,
@@ -1014,12 +1361,67 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: spacing.xs,
   },
+  activeLocation: {
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activeLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeLocationGlyph: {
+    color: colors.primary,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  activeLocationCopy: { flex: 1, minWidth: 0 },
+  activeLocationLabel: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  activeLocationName: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 15,
+    marginTop: 2,
+  },
+  activeLocationCheck: {
+    color: colors.success,
+    fontSize: 20,
+    fontWeight: '900',
+  },
   errorBox: {
     padding: spacing.sm,
     borderRadius: radius.sm,
     backgroundColor: colors.dangerSoft,
   },
   errorText: { color: colors.danger, fontWeight: '700', textAlign: 'center' },
+  successBox: {
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.successSoft,
+  },
+  successText: {
+    color: colors.success,
+    fontWeight: '800',
+    textAlign: 'center',
+    fontSize: 12,
+  },
   section: {
     padding: spacing.md,
     borderRadius: radius.lg,
@@ -1115,21 +1517,62 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 11,
   },
+  inlineAddButton: {
+    alignSelf: 'flex-start',
+    minHeight: sizing.touchTargetMin,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineAddButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+    fontSize: 11,
+  },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    padding: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
     backgroundColor: colors.surfaceCard,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.outlineSoft,
+    gap: spacing.xs,
+  },
+  footerRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
+  },
+  continueButton: {
+    width: '100%',
+    minHeight: sizing.buttonHeight,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  continueButtonGlyph: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  continueButtonText: {
+    color: '#ffffff',
+    fontWeight: '900',
+    fontSize: 12,
+    textAlign: 'center',
   },
   primaryButton: {
-    flex: 2,
+    flex: 1,
     minHeight: sizing.buttonHeight,
     borderRadius: radius.sm,
     backgroundColor: colors.primary,
@@ -1139,6 +1582,22 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   primaryButtonText: { color: '#fff', fontWeight: '900' },
+  saveSecondaryButton: {
+    flex: 1,
+    minHeight: sizing.buttonHeight,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  saveSecondaryButtonText: {
+    color: colors.primary,
+    fontWeight: '900',
+  },
   secondaryButton: {
     flex: 1,
     minHeight: sizing.buttonHeight,

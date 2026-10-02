@@ -1,6 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { mergeJsonPayload, parseJsonObject, stringifyJson } from '@/db/json';
 import {
+  saveLocalEvidenceTx,
+  SaveLocalEvidenceInput,
+} from '@/db/evidenceRepository';
+import { upsertResourceItemTx } from '@/db/resourceRepository';
+import {
   enqueueOutboxOperationTx,
   findPendingEntityCreateOperation,
 } from '@/db/outboxRepository';
@@ -161,85 +166,302 @@ export async function upsertRemoteDevice(
   await upsertDeviceRow(db, scopeKey, record, 'SYNCED');
 }
 
-export async function saveLocalDevice(
+export type EquipmentLocationDraft = {
+  localId: string;
+  parentLocationId: string;
+  name: string;
+  description?: string;
+};
+
+async function saveLocalEquipmentLocationTx(
   db: SQLiteDatabase,
   scopeKey: string,
   maintenanceId: string,
-  patch: DeviceRecord,
+  draft: EquipmentLocationDraft,
+  dependsOnOperationId = '',
 ) {
-  let deviceId = idOf(patch);
-  let operationId = '';
+  const localId = String(draft.localId || '').trim() || createLocalId('ubicacion-equipo');
+  const parentLocationId = String(draft.parentLocationId || '').trim();
+  const name = String(draft.name || '').trim();
+  const description = String(draft.description || '').trim();
 
+  if (!parentLocationId) {
+    throw new Error('Seleccione la ubicación principal para la nueva ubicación del equipo.');
+  }
+  if (!name) {
+    throw new Error('Escriba el nombre de la ubicación del equipo.');
+  }
+
+  await upsertResourceItemTx(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    {
+      UbicacionEquipoID: localId,
+      UbicacionID: parentLocationId,
+      Nombre: name,
+      Descripcion: description,
+      Estado: 'ACTIVO',
+      Activo: true,
+      __localDraft: true,
+    },
+  );
+
+  const existingCreate = await findPendingEntityCreateOperation(
+    db,
+    scopeKey,
+    'equipmentLocation',
+    localId,
+  );
+  if (existingCreate) {
+    return {
+      localId,
+      operationId: existingCreate.operation_id,
+    };
+  }
+
+  const queued = await enqueueOutboxOperationTx(db, {
+    scopeKey,
+    operationKind: 'CREATE',
+    route: 'equipmentLocations.operational.create',
+    entityType: 'equipmentLocation',
+    entityId: localId,
+    aggregateId: maintenanceId,
+    payload: {
+      ubicacionId: parentLocationId,
+      UbicacionID: parentLocationId,
+      nombre: name,
+      Nombre: name,
+      descripcion: description,
+      Descripcion: description,
+      activo: true,
+      Activo: true,
+    },
+    priority: 50,
+    dedupeKey: `equipmentLocation:create:${localId}`,
+    dependsOnOperationId,
+  });
+
+  return {
+    localId,
+    operationId: queued.operationId,
+  };
+}
+
+export async function saveLocalEquipmentLocation(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  draft: EquipmentLocationDraft,
+) {
+  let result = { localId: '', operationId: '' };
   await db.withExclusiveTransactionAsync(async (transaction) => {
-    const existing = deviceId
-      ? await transaction.getFirstAsync<{ payload_json: string; sync_status: string }>(
-        `SELECT payload_json, sync_status FROM local_maintenance_devices
-         WHERE scope_key = ? AND device_id = ?`,
-        scopeKey,
-        deviceId,
-      )
-      : null;
-
-    if (!deviceId) deviceId = createLocalId('dispositivo');
-
-    const existingPayload = existing
-      ? parseJsonObject<DeviceRecord>(existing.payload_json)
-      : null;
-    let merged = existing
-      ? mergeJsonPayload(existing.payload_json, patch)
-      : { ...patch };
-
-    merged.EvidenciaMantenimientoID = deviceId;
-    merged.deviceId = deviceId;
-    merged.MantenimientoRef = maintenanceId;
-    merged.MantenimientoID = maintenanceId;
-    merged.maintenanceId = maintenanceId;
-
-    if (existingPayload && !merged.__syncBase) {
-      merged = withSyncBase(
-        merged,
-        maintenanceDeviceSyncBase(existingPayload, maintenanceId),
-      );
-    }
-
-    const pendingCreate = await findPendingEntityCreateOperation(
-      transaction,
-      scopeKey,
-      'maintenanceDevice',
-      deviceId,
-    );
-    const localOnly = !existing || existing.sync_status === 'LOCAL_ONLY' || Boolean(pendingCreate);
-
-    await upsertDeviceRow(
-      transaction,
-      scopeKey,
-      merged,
-      localOnly ? 'LOCAL_ONLY' : 'PENDING',
-    );
-
     const maintenanceCreate = await findPendingEntityCreateOperation(
       transaction,
       scopeKey,
       'maintenance',
       maintenanceId,
     );
-
-    const queued = await enqueueOutboxOperationTx(transaction, {
+    result = await saveLocalEquipmentLocationTx(
+      transaction,
       scopeKey,
-      operationKind: localOnly ? 'CREATE' : 'UPDATE',
-      route: localOnly ? 'maintenance.devices.create' : 'maintenance.devices.update',
-      entityType: 'maintenanceDevice',
-      entityId: deviceId,
-      aggregateId: maintenanceId,
-      payload: merged,
-      priority: 60,
-      dependsOnOperationId: maintenanceCreate?.operation_id || '',
-    });
-    operationId = queued.operationId;
-    await refreshDetailCountsTx(transaction, scopeKey, maintenanceId);
+      maintenanceId,
+      draft,
+      maintenanceCreate?.operation_id || '',
+    );
   });
+  return result;
+}
+
+type SaveDeviceOptions = {
+  equipmentLocationDraft?: EquipmentLocationDraft | null;
+};
+
+async function saveLocalDeviceTx(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  patch: DeviceRecord,
+  options: SaveDeviceOptions = {},
+) {
+  let deviceId = idOf(patch);
+  let operationId = '';
+
+  const existing = deviceId
+    ? await db.getFirstAsync<{ payload_json: string; sync_status: string }>(
+      `SELECT payload_json, sync_status FROM local_maintenance_devices
+       WHERE scope_key = ? AND device_id = ?`,
+      scopeKey,
+      deviceId,
+    )
+    : null;
+
+  if (!deviceId) deviceId = createLocalId('dispositivo');
+
+  const maintenanceCreate = await findPendingEntityCreateOperation(
+    db,
+    scopeKey,
+    'maintenance',
+    maintenanceId,
+  );
+  const maintenanceDependency = {
+    dependsOnOperationId: maintenanceCreate?.operation_id,
+  };
+
+  let equipmentDependencyId = '';
+  const locationDraft = options.equipmentLocationDraft || null;
+  if (locationDraft?.localId) {
+    const location = await saveLocalEquipmentLocationTx(
+      db,
+      scopeKey,
+      maintenanceId,
+      locationDraft,
+      maintenanceCreate?.operation_id || '',
+    );
+    equipmentDependencyId = location.operationId;
+  }
+
+  const existingPayload = existing
+    ? parseJsonObject<DeviceRecord>(existing.payload_json)
+    : null;
+  let merged = existing
+    ? mergeJsonPayload(existing.payload_json, patch)
+    : { ...patch };
+
+  merged.EvidenciaMantenimientoID = deviceId;
+  merged.deviceId = deviceId;
+  merged.MantenimientoRef = maintenanceId;
+  merged.MantenimientoID = maintenanceId;
+  merged.maintenanceId = maintenanceId;
+
+  if (locationDraft?.localId) {
+    merged.UbicacionEquipoID = locationDraft.localId;
+    merged.ubicacionEquipoId = locationDraft.localId;
+    merged.UbicacionEquipoNombre = locationDraft.name;
+    merged.ubicacionEquipoNombre = locationDraft.name;
+    merged.Zona = locationDraft.name;
+    merged.zona = locationDraft.name;
+  }
+
+  if (existingPayload && !merged.__syncBase) {
+    merged = withSyncBase(
+      merged,
+      maintenanceDeviceSyncBase(existingPayload, maintenanceId),
+    );
+  }
+
+  const pendingCreate = await findPendingEntityCreateOperation(
+    db,
+    scopeKey,
+    'maintenanceDevice',
+    deviceId,
+  );
+  const localOnly = !existing
+    || existing.sync_status === 'LOCAL_ONLY'
+    || Boolean(pendingCreate);
+
+  await upsertDeviceRow(
+    db,
+    scopeKey,
+    merged,
+    localOnly ? 'LOCAL_ONLY' : 'PENDING',
+  );
+
+  if (!equipmentDependencyId) {
+    const selectedLocationId = String(
+      pick(merged, ['UbicacionEquipoID', 'ubicacionEquipoId'], ''),
+    ).trim();
+    if (selectedLocationId) {
+      const pendingLocationCreate = await findPendingEntityCreateOperation(
+        db,
+        scopeKey,
+        'equipmentLocation',
+        selectedLocationId,
+      );
+      equipmentDependencyId = pendingLocationCreate?.operation_id || '';
+    }
+  }
+
+  const queued = await enqueueOutboxOperationTx(db, {
+    scopeKey,
+    operationKind: localOnly ? 'CREATE' : 'UPDATE',
+    route: localOnly ? 'maintenance.devices.create' : 'maintenance.devices.update',
+    entityType: 'maintenanceDevice',
+    entityId: deviceId,
+    aggregateId: maintenanceId,
+    payload: merged,
+    priority: 60,
+    dependsOnOperationId: equipmentDependencyId
+      || maintenanceDependency.dependsOnOperationId
+      || '',
+  });
+  operationId = queued.operationId;
+  await refreshDetailCountsTx(db, scopeKey, maintenanceId);
 
   return { deviceId, operationId };
+}
+
+export async function saveLocalDevice(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  patch: DeviceRecord,
+  options: SaveDeviceOptions = {},
+) {
+  let result = { deviceId: '', operationId: '' };
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    result = await saveLocalDeviceTx(
+      transaction,
+      scopeKey,
+      maintenanceId,
+      patch,
+      options,
+    );
+  });
+  return result;
+}
+
+export async function saveLocalDeviceWithEvidence(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  patch: DeviceRecord,
+  input: SaveDeviceOptions & {
+    evidence?: Omit<SaveLocalEvidenceInput, 'maintenanceId' | 'deviceId'>[];
+  } = {},
+) {
+  let result = { deviceId: '', operationId: '', evidenceCount: 0 };
+
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const device = await saveLocalDeviceTx(
+      transaction,
+      scopeKey,
+      maintenanceId,
+      patch,
+      input,
+    );
+
+    let evidenceCount = 0;
+    for (const evidence of input.evidence || []) {
+      await saveLocalEvidenceTx(
+        transaction,
+        scopeKey,
+        {
+          ...evidence,
+          maintenanceId,
+          deviceId: device.deviceId,
+        },
+      );
+      evidenceCount += 1;
+    }
+
+    result = {
+      ...device,
+      evidenceCount,
+    };
+  });
+
+  return result;
 }
 
 export async function deleteLocalDevice(

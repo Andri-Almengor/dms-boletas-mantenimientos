@@ -35,8 +35,9 @@ test('actualizar un detalle reutiliza maintenance.get bajo el mismo lease de sin
 
 test('detalle distingue resumen de snapshot completo', () => {
   assert.match(detailScreen, /detail\.detailComplete/);
-  assert.match(detailScreen, /Detalle todavía no descargado/);
-  assert.match(detailScreen, /Descargar detalle/);
+  // El rediseño conserva la misma distinción funcional con copy más corto.
+  assert.match(detailScreen, /Detalle pendiente de descarga/);
+  assert.match(detailScreen, /Descargue una vez el detalle/);
   assert.match(detailScreen, /disponible sin conexión/i);
 });
 

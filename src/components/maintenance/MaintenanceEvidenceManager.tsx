@@ -1,5 +1,6 @@
 import { OptionSheet } from '@/components/forms/OptionSheet';
 import { EvidenceLightbox } from '@/components/maintenance/EvidenceLightbox';
+import { MaintenanceEvidencePickerControls } from '@/components/maintenance/MaintenanceEvidencePickerControls';
 import { useAuth } from '@/auth/AuthProvider';
 import {
   deleteLocalEvidence,
@@ -26,7 +27,7 @@ import {
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import { createLocalId } from '@/utils/localId';
-import * as ImagePicker from 'expo-image-picker';
+import type { ImagePickerAsset } from 'expo-image-picker';
 import { useSQLiteContext } from 'expo-sqlite';
 import React, {
   useCallback,
@@ -174,7 +175,7 @@ export function MaintenanceEvidenceManager({
   }, [load]);
 
   const persistAssets = useCallback(async (
-    assets: ImagePicker.ImagePickerAsset[],
+    assets: ImagePickerAsset[],
   ) => {
     if (!assets.length || !dataScope || readOnly) return;
 
@@ -272,97 +273,6 @@ export function MaintenanceEvidenceManager({
     refreshStatus,
     targets,
   ]);
-
-  useEffect(() => {
-    if (readOnly) return;
-    let active = true;
-
-    ImagePicker.getPendingResultAsync()
-      .then((result) => {
-        if (
-          !active
-          || !result
-          || !('canceled' in result)
-          || result.canceled
-          || !Array.isArray(result.assets)
-        ) {
-          return;
-        }
-        return persistAssets(result.assets);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [persistAssets, readOnly]);
-
-  async function requireCameraPermission() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setError('Se necesita permiso de cámara para tomar evidencias.');
-      return false;
-    }
-    return true;
-  }
-
-  async function requireLibraryPermission() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError('Se necesita permiso para seleccionar evidencias de la galería.');
-      return false;
-    }
-    return true;
-  }
-
-  async function takePhoto() {
-    if (!await requireCameraPermission()) return;
-    setError('');
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      cameraType: ImagePicker.CameraType.back,
-      allowsEditing: true,
-      quality: 0.9,
-    });
-    if (!result.canceled) await persistAssets(result.assets);
-  }
-
-  async function recordVideo() {
-    if (!await requireCameraPermission()) return;
-    setError('');
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['videos'],
-      cameraType: ImagePicker.CameraType.back,
-      allowsEditing: false,
-      videoMaxDuration: 90,
-      quality: 1,
-    });
-    if (!result.canceled) await persistAssets(result.assets);
-  }
-
-  async function pickEditablePhoto() {
-    if (!await requireLibraryPermission()) return;
-    setError('');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.9,
-    });
-    if (!result.canceled) await persistAssets(result.assets);
-  }
-
-  async function pickMultiple() {
-    if (!await requireLibraryPermission()) return;
-    setError('');
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      allowsMultipleSelection: true,
-      selectionLimit: 30,
-      orderedSelection: true,
-      quality: 1,
-    });
-    if (!result.canceled) await persistAssets(result.assets);
-  }
 
   function openEditor(item: EvidenceRecord) {
     setEditing(item);
@@ -540,63 +450,17 @@ export function MaintenanceEvidenceManager({
       ) : null}
 
       {!readOnly ? (
-        <View style={styles.addPanel}>
-          {!projectMode ? (
-            <View style={styles.typeChoices}>
-              {['Antes', 'Despues'].map((type) => (
-                <Pressable
-                  key={type}
-                  onPress={() => setNewType(type)}
-                  style={[
-                    styles.typeChoice,
-                    newType === type && styles.typeChoiceSelected,
-                  ]}
-                >
-                  <Text style={[
-                    styles.typeChoiceText,
-                    newType === type && styles.typeChoiceTextSelected,
-                  ]}>
-                    {type === 'Despues' ? 'Después' : type}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <OptionSheet
-              label="Corresponde a"
-              value={newTargetValue}
-              options={targetOptions}
-              onChange={(value) => setNewTargetValue(String(value))}
-            />
-          )}
-
-          <View style={styles.pickerGrid}>
-            <PickerButton
-              label="Tomar foto"
-              icon="📷"
-              onPress={takePhoto}
-            />
-            <PickerButton
-              label="Foto galería"
-              icon="🖼"
-              onPress={pickEditablePhoto}
-            />
-            <PickerButton
-              label="Seleccionar varios"
-              icon="▦"
-              onPress={pickMultiple}
-            />
-            <PickerButton
-              label="Grabar video"
-              icon="▶"
-              onPress={recordVideo}
-            />
-          </View>
-
-          <Text style={styles.helper}>
-            Las fotos individuales permiten recortar/rotar con el editor nativo. Todo archivo se copia primero al almacenamiento persistente del dispositivo y luego entra a la outbox.
-          </Text>
-        </View>
+        <MaintenanceEvidencePickerControls
+          projectMode={projectMode}
+          evidenceType={newType}
+          onEvidenceTypeChange={setNewType}
+          targetValue={newTargetValue}
+          targetOptions={targetOptions}
+          onTargetChange={setNewTargetValue}
+          disabled={readOnly}
+          onAssets={persistAssets}
+          onError={setError}
+        />
       ) : null}
 
       {items.length ? (
@@ -792,29 +656,6 @@ export function MaintenanceEvidenceManager({
         />
       ) : null}
     </View>
-  );
-}
-
-function PickerButton({
-  label,
-  icon,
-  onPress,
-}: {
-  label: string;
-  icon: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.pickerButton,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text style={styles.pickerIcon}>{icon}</Text>
-      <Text style={styles.pickerLabel}>{label}</Text>
-    </Pressable>
   );
 }
 

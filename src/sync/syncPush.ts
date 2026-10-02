@@ -14,8 +14,7 @@ import {
 } from '@/db/evidenceRepository';
 import { getLocalFile } from '@/db/localFileRepository';
 import { upsertRemoteMaintenance } from '@/db/maintenanceRepository';
-import { applyMaintenanceFinalizationAcceptedTx } from '@/db/maintenanceFinalizationRepository';
-import { markMaintenanceSignatureSyncedTx } from '@/db/maintenanceSignatureRepository';
+import { remapCreatedEquipmentLocationTx } from '@/db/resourceRepository';
 import {
   hasUnresolvedEntityOperations,
   listReadyOutboxOperations,
@@ -245,71 +244,6 @@ async function executeOperation(
 ) {
   const payload = parseJsonObject<RecordLike>(operation.payload_json);
 
-  if (operation.operation_kind === 'SIGNATURE_UPLOAD') {
-    const file = await localMediaFile(db, scopeKey, operation);
-    const mimeType = String(
-      payload.mimeType
-        || payload.MimeType
-        || file.mime_type
-        || 'image/png',
-    ).toLowerCase();
-    if (!['image/png', 'image/jpeg', 'image/jpg'].includes(mimeType)) {
-      const error = new Error('La firma debe ser una imagen PNG o JPEG.');
-      (error as Error & { code?: string }).code = 'SIGNATURE_INVALID_TYPE';
-      throw error;
-    }
-    if (Number(file.file_size || 0) > 4 * 1024 * 1024) {
-      const error = new Error('La firma supera el tamaño máximo permitido de 4 MB.');
-      (error as Error & { code?: string }).code = 'SIGNATURE_TOO_LARGE';
-      throw error;
-    }
-
-    await keepLeaseAlive?.();
-    const link = await actionRequest<RecordLike>(
-      'maintenance.signature.link',
-      {
-        maintenanceId: operation.aggregate_id,
-        MantenimientoID: operation.aggregate_id,
-      },
-      sessionToken,
-      { signal },
-    );
-    const request = link.request && typeof link.request === 'object'
-      ? link.request as RecordLike
-      : {};
-    const alreadySigned = Boolean(
-      link.signed
-      || String(request.status || '').toUpperCase() === 'FIRMADA',
-    );
-    if (alreadySigned) return link;
-
-    const token = String(request.token || '');
-    if (!token) {
-      const error = new Error('El servidor no devolvió una solicitud de firma activa.');
-      (error as Error & { code?: string }).code = 'SIGNATURE_REQUEST_MISSING';
-      throw error;
-    }
-
-    let base64 = await FileSystem.readAsStringAsync(file.local_uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    try {
-      await keepLeaseAlive?.();
-      return await actionRequest<RecordLike>(
-        'maintenance.signature.public.submit',
-        {
-          token,
-          base64,
-          mimeType: mimeType === 'image/jpg' ? 'image/jpeg' : mimeType,
-        },
-        sessionToken,
-        { signal },
-      );
-    } finally {
-      base64 = '';
-    }
-  }
-
   if (operation.operation_kind !== 'MEDIA_UPLOAD') {
     await keepLeaseAlive?.();
     return actionRequest<unknown>(
@@ -379,29 +313,16 @@ async function completeSuccess(
   await db.withExclusiveTransactionAsync(async (transaction) => {
     await markOutboxSucceeded(transaction, operation.operation_id);
 
-    if (operation.operation_kind === 'SIGNATURE_UPLOAD') {
-      const value = result && typeof result === 'object'
-        ? result as RecordLike
-        : {};
-      const request = value.request && typeof value.request === 'object'
-        ? value.request as RecordLike
-        : {};
-      await markMaintenanceSignatureSyncedTx(transaction, {
+    if (
+      operation.operation_kind === 'CREATE'
+      && operation.entity_type === 'equipmentLocation'
+    ) {
+      await remapCreatedEquipmentLocationTx(
+        transaction,
         scopeKey,
-        maintenanceId: operation.aggregate_id,
-        serverFileId: String(request.fileId || request.FirmaArchivoID || ''),
-        serverUrl: String(request.FirmaURL || ''),
-        signedAt: String(request.signedAt || request.FechaFirma || ''),
-      });
-      return;
-    }
-
-    if (operation.operation_kind === 'FINALIZE_PENDING') {
-      await applyMaintenanceFinalizationAcceptedTx(transaction, {
-        scopeKey,
-        maintenanceId: operation.aggregate_id,
-        result,
-      });
+        operation.entity_id,
+        resultRecord(operation, result),
+      );
       return;
     }
 
@@ -498,9 +419,6 @@ function isRetriable(error: unknown) {
     ).toUpperCase();
     if ([
       'LOCAL_FILE_MISSING',
-      'SIGNATURE_INVALID_TYPE',
-      'SIGNATURE_TOO_LARGE',
-      'SIGNATURE_REQUEST_MISSING',
     ].includes(code)) return false;
     return true;
   }

@@ -6,20 +6,29 @@ export type DeltaResourceConfig = {
   route: string;
   localResource?: string;
   optional?: boolean;
+  /**
+   * Algunos endpoints operativos (maintenance.list) ya aplican su propia
+   * política de visibilidad/Activo. No debemos endurecerla desde el móvil.
+   */
+  forceActiveFilter?: boolean;
 };
 
 export const DELTA_RESOURCES: DeltaResourceConfig[] = [
-  { resource: 'maintenance', route: 'maintenance.list' },
-  { resource: 'client', route: 'clients.list' },
-  { resource: 'clientLocation', route: 'clientLocations.list' },
-  { resource: 'equipmentLocation', route: 'equipmentLocations.list' },
-  { resource: 'contact', route: 'contacts.list' },
-  { resource: 'catalogCategory', route: 'catalog.categories.list' },
-  { resource: 'deviceType', route: 'catalog.deviceTypes.list' },
-  { resource: 'manufacturer', route: 'catalog.manufacturers.list' },
-  { resource: 'model', route: 'catalog.models.list' },
-  { resource: 'failureType', route: 'catalog.failureTypes.list' },
-  { resource: 'deviceManufacturerRelation', route: 'catalog.deviceManufacturers.list' },
+  {
+    resource: 'maintenance',
+    route: 'maintenance.list',
+    forceActiveFilter: false,
+  },
+  { resource: 'client', route: 'clients.list', forceActiveFilter: true },
+  { resource: 'clientLocation', route: 'clientLocations.list', forceActiveFilter: true },
+  { resource: 'equipmentLocation', route: 'equipmentLocations.list', forceActiveFilter: true },
+  { resource: 'contact', route: 'contacts.list', forceActiveFilter: true },
+  { resource: 'catalogCategory', route: 'catalog.categories.list', forceActiveFilter: true },
+  { resource: 'deviceType', route: 'catalog.deviceTypes.list', forceActiveFilter: true },
+  { resource: 'manufacturer', route: 'catalog.manufacturers.list', forceActiveFilter: true },
+  { resource: 'model', route: 'catalog.models.list', forceActiveFilter: true },
+  { resource: 'failureType', route: 'catalog.failureTypes.list', forceActiveFilter: true },
+  { resource: 'deviceManufacturerRelation', route: 'catalog.deviceManufacturers.list', forceActiveFilter: true },
 ];
 
 export const STATIC_RESOURCES = [

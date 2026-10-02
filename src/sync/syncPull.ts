@@ -1,4 +1,8 @@
-import { actionRequest, ActionApiError } from '@/api/actionClient';
+import {
+  actionRequest,
+  ActionApiError,
+  isAuthenticationError,
+} from '@/api/actionClient';
 import { createSyncConflict } from '@/db/conflictRepository';
 import { parseJsonObject } from '@/db/json';
 import { automaticSyncWindowClosedError } from '@/sync/syncPolicy';
@@ -17,6 +21,7 @@ import {
 } from '@/db/resourceRepository';
 import {
   getSyncState,
+  requireFullSnapshot,
   saveSyncCursor,
 } from '@/db/syncStateRepository';
 import {
@@ -79,7 +84,7 @@ async function prepareNetworkUnit(
 }
 
 async function fetchAllPages(
-  route: string,
+  config: DeltaResourceConfig,
   sessionToken: string,
   signal?: AbortSignal,
   shouldContinue?: () => boolean,
@@ -89,9 +94,16 @@ async function fetchAllPages(
 
   for (let page = 1; page <= 100; page += 1) {
     await prepareNetworkUnit(shouldContinue, keepLeaseAlive);
+    const payload: RecordLike = {
+      page,
+      pageSize: SNAPSHOT_PAGE_SIZE,
+    };
+    if (config.forceActiveFilter !== false) {
+      payload.activo = true;
+    }
     const data = await actionRequest<unknown>(
-      route,
-      { page, pageSize: SNAPSHOT_PAGE_SIZE, activo: true },
+      config.route,
+      payload,
       sessionToken,
       { signal },
     );
@@ -307,7 +319,7 @@ async function replaceSnapshot(
   keepLeaseAlive?: () => Promise<void>,
 ) {
   const records = await fetchAllPages(
-    config.route,
+    config,
     sessionToken,
     signal,
     shouldContinue,
@@ -333,15 +345,48 @@ async function replaceSnapshot(
   return records.length;
 }
 
+async function replaceSnapshotOnly(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  config: DeltaResourceConfig,
+  sessionToken: string,
+  signal?: AbortSignal,
+  shouldContinue?: () => boolean,
+  keepLeaseAlive?: () => Promise<void>,
+) {
+  const records = await fetchAllPages(
+    config,
+    sessionToken,
+    signal,
+    shouldContinue,
+    keepLeaseAlive,
+  );
+  if (config.resource === 'maintenance') {
+    await applyMaintenanceSnapshot(db, scopeKey, records);
+  } else {
+    await replaceResourceSnapshot(
+      db,
+      scopeKey,
+      config.localResource || config.resource,
+      records,
+    );
+  }
+
+  // No inventamos generation/cacheScope cuando incremental no está disponible.
+  // La siguiente sincronización volverá a sondear sync.delta y, mientras tanto,
+  // SQLite conserva el snapshot autoritativo para uso offline.
+  await requireFullSnapshot(db, scopeKey, config.resource);
+  return records.length;
+}
+
+function incrementalUnavailable(delta: SyncDelta) {
+  return delta.enabled === false || delta.reason === 'sync_unsafe';
+}
+
 function validateDelta(delta: SyncDelta) {
   if (delta.securityInvalidated) {
     const error = new Error('La seguridad de la sesión cambió durante la sincronización.');
     (error as Error & { code?: string }).code = 'SYNC_SECURITY_CHANGED';
-    throw error;
-  }
-  if (delta.enabled === false || delta.reason === 'sync_unsafe') {
-    const error = new Error('El servidor solicitó una reconciliación completa.');
-    (error as Error & { code?: string }).code = 'SYNC_DISABLED';
     throw error;
   }
 }
@@ -368,14 +413,51 @@ export async function synchronizeDeltaResource(
   let state = await getSyncState(db, scopeKey, config.resource);
 
   if (!state?.generation || !state.cache_scope || state.full_snapshot_required) {
-    const probe = await probeResource(
-      config,
-      sessionToken,
-      signal,
-      shouldContinue,
-      keepLeaseAlive,
-    );
+    let probe: SyncDelta | null = null;
+    try {
+      probe = await probeResource(
+        config,
+        sessionToken,
+        signal,
+        shouldContinue,
+        keepLeaseAlive,
+      );
+    } catch (error) {
+      if (isAuthenticationError(error)) throw error;
+      const changed = await replaceSnapshotOnly(
+        db,
+        scopeKey,
+        config,
+        sessionToken,
+        signal,
+        shouldContinue,
+        keepLeaseAlive,
+      );
+      return {
+        resource: config.resource,
+        changed,
+        snapshotOnly: true,
+      };
+    }
+
     validateDelta(probe);
+    if (incrementalUnavailable(probe)) {
+      const changed = await replaceSnapshotOnly(
+        db,
+        scopeKey,
+        config,
+        sessionToken,
+        signal,
+        shouldContinue,
+        keepLeaseAlive,
+      );
+      return {
+        resource: config.resource,
+        changed,
+        snapshotOnly: true,
+      };
+    }
+
     await replaceSnapshot(
       db,
       scopeKey,
@@ -408,6 +490,23 @@ export async function synchronizeDeltaResource(
     );
 
     validateDelta(delta);
+
+    if (incrementalUnavailable(delta)) {
+      const snapshotChanged = await replaceSnapshotOnly(
+        db,
+        scopeKey,
+        config,
+        sessionToken,
+        signal,
+        shouldContinue,
+        keepLeaseAlive,
+      );
+      return {
+        resource: config.resource,
+        changed: changed + snapshotChanged,
+        snapshotOnly: true,
+      };
+    }
 
     if (delta.fullSnapshotRequired) {
       await replaceSnapshot(

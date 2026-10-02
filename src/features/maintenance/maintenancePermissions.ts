@@ -68,18 +68,3 @@ export function maintenanceReadOnly(
     && !isMaintenanceAdministrator(permissions);
 }
 
-
-export function canAccessMaintenanceSignature(permissions: string[]) {
-  return hasAnyPermission(permissions, [
-    'MANTENIMIENTOS_VER',
-    'MANTENIMIENTOS_CREAR',
-    'MANTENIMIENTOS_EDITAR',
-    'MANTENIMIENTOS_GESTIONAR',
-    'BOLETAS_VER',
-    'USUARIOS_GESTIONAR',
-  ]);
-}
-
-export function canFinalizeMaintenance(permissions: string[]) {
-  return permissions.includes('USUARIOS_GESTIONAR');
-}

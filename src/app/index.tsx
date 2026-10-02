@@ -12,7 +12,6 @@ import {
   listLocalMaintenanceClients,
   listLocalMaintenancesPage,
 } from '@/db/maintenanceRepository';
-import { canCreateMaintenance } from '@/features/maintenance/maintenancePermissions';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import { Redirect, useRouter } from 'expo-router';
@@ -61,7 +60,6 @@ export default function MaintenanceListScreen() {
     user,
     loading: authLoading,
     dataScope,
-    permissions,
     logout,
   } = useAuth();
   const {
@@ -114,7 +112,7 @@ export default function MaintenanceListScreen() {
     } catch (loadError) {
       setError(loadError instanceof Error
         ? loadError.message
-        : 'No se pudieron leer los mantenimientos locales.');
+        : 'No se pudieron leer los mantenimientos guardados.');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -175,24 +173,13 @@ export default function MaintenanceListScreen() {
           <View style={styles.headerContent}>
             <View style={styles.heading}>
               <View style={styles.headingText}>
-                <Text style={styles.eyebrow}>Gestión técnica</Text>
+                <Text style={styles.eyebrow}>DMS Móvil</Text>
                 <Text style={styles.title}>Mantenimientos</Text>
                 <Text style={styles.subtitle}>
-                  La lista y los filtros trabajan directamente sobre SQLite.
+                  Trabajo de campo disponible con o sin conexión.
                 </Text>
               </View>
               <View style={styles.headingActions}>
-                {canCreateMaintenance(permissions) ? (
-                  <Pressable
-                    onPress={() => router.push('/maintenance/new')}
-                    style={({ pressed }) => [
-                      styles.createButton,
-                      pressed && styles.logoutPressed,
-                    ]}
-                  >
-                    <Text style={styles.createButtonText}>+ Nuevo</Text>
-                  </Pressable>
-                ) : null}
                 <Pressable
                   onPress={logout}
                   style={({ pressed }) => [
@@ -229,26 +216,28 @@ export default function MaintenanceListScreen() {
               ))}
             </View>
 
-            <View style={styles.searchRow}>
-              <Text style={styles.searchGlyph}>⌕</Text>
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Buscar título, cliente o responsable..."
-                placeholderTextColor={colors.muted}
-                style={styles.searchInput}
-                returnKeyType="search"
-                autoCorrect={false}
-              />
-              {search ? (
-                <Pressable
-                  onPress={() => setSearch('')}
-                  hitSlop={10}
-                  style={styles.iconButton}
-                >
-                  <Text style={styles.iconButtonText}>×</Text>
-                </Pressable>
-              ) : null}
+            <View style={styles.searchActions}>
+              <View style={styles.searchRow}>
+                <Text style={styles.searchGlyph}>⌕</Text>
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Buscar cliente, sede o responsable"
+                  placeholderTextColor={colors.muted}
+                  style={styles.searchInput}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                />
+                {search ? (
+                  <Pressable
+                    onPress={() => setSearch('')}
+                    hitSlop={10}
+                    style={styles.iconButton}
+                  >
+                    <Text style={styles.iconButtonText}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
               <Pressable
                 onPress={() => setFilterOpen(true)}
                 style={[
@@ -256,11 +245,12 @@ export default function MaintenanceListScreen() {
                   activeFilters > 0 && styles.filterButtonActive,
                 ]}
               >
+                <Text style={styles.filterGlyph}>☷</Text>
                 <Text style={[
                   styles.filterText,
                   activeFilters > 0 && styles.filterTextActive,
                 ]}>
-                  Filtros{activeFilters ? ` · ${activeFilters}` : ''}
+                  Filtros{activeFilters ? ` ${activeFilters}` : ''}
                 </Text>
               </Pressable>
             </View>
@@ -268,7 +258,7 @@ export default function MaintenanceListScreen() {
             <View style={styles.resultsRow}>
               <Text style={styles.resultsText}>
                 {loading
-                  ? 'Leyendo SQLite…'
+                  ? 'Actualizando vista…'
                   : `${items.length}${total > items.length ? ` de ${total}` : ''} mantenimiento${total === 1 ? '' : 's'}`}
               </Text>
               <Pressable
@@ -300,7 +290,7 @@ export default function MaintenanceListScreen() {
             <Text style={styles.emptyText}>
               {appliedSearch || activeFilters
                 ? 'No hay registros locales con los filtros actuales.'
-                : 'Si este dispositivo todavía no tiene la base operativa, sincronice una vez con conexión.'}
+                : 'Sincronice una vez con conexión para preparar este dispositivo para trabajo offline.'}
             </Text>
             {!appliedSearch && !activeFilters ? (
               <Pressable
@@ -421,8 +411,14 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.muted, fontWeight: '800' },
   tabTextActive: { color: '#fff' },
+  searchActions: {
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   searchRow: {
-    marginHorizontal: spacing.md,
+    flex: 1,
+    minWidth: 0,
     minHeight: sizing.controlHeight,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
@@ -434,7 +430,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   searchGlyph: { color: colors.primary, fontSize: 24 },
-  searchInput: { flex: 1, color: colors.text, fontSize: 14, minWidth: 0 },
+  searchInput: { flex: 1, color: colors.text, fontSize: 13, minWidth: 0 },
   iconButton: {
     width: 32,
     height: 32,
@@ -443,15 +439,24 @@ const styles = StyleSheet.create({
   },
   iconButtonText: { color: colors.muted, fontSize: 24 },
   filterButton: {
-    minHeight: 36,
+    minWidth: 92,
+    minHeight: sizing.controlHeight,
     paddingHorizontal: spacing.sm,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceLow,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.outlineSoft,
+    flexDirection: 'row',
+    gap: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  filterButtonActive: { backgroundColor: colors.primarySoft },
-  filterText: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  filterButtonActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  filterGlyph: { color: colors.primary, fontSize: 15, fontWeight: '900' },
+  filterText: { color: colors.text, fontSize: 11, fontWeight: '900' },
   filterTextActive: { color: colors.primary },
   resultsRow: {
     paddingHorizontal: spacing.md,

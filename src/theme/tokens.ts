@@ -1,8 +1,14 @@
+import { Appearance } from 'react-native';
+
 /**
- * Tokens portados desde dms-boletas/src/styles/tokens.css.
- * Mantenerlos alineados con la aplicación web; no crear una línea gráfica paralela.
+ * Tokens portados desde DMS Boletas web:
+ * - src/styles/tokens.css (light)
+ * - src/styles/theme.css (dark)
+ *
+ * La app móvil no mantiene una paleta paralela. Se toma el esquema del sistema
+ * al arrancar la aplicación y se conservan los mismos tokens semánticos.
  */
-export const colors = Object.freeze({
+export const lightColors = Object.freeze({
   primary: '#af101a',
   primaryStrong: '#930010',
   primaryContainer: '#d32f2f',
@@ -24,6 +30,33 @@ export const colors = Object.freeze({
   danger: '#ba1a1a',
   dangerSoft: '#ffdad6',
 });
+
+export const darkColors = Object.freeze({
+  primary: '#ff6b73',
+  primaryStrong: '#ff5661',
+  primaryContainer: '#8f252c',
+  primarySoft: '#35191c',
+  surface: '#121010',
+  surfaceLow: '#191616',
+  surfaceCard: '#211d1d',
+  surfaceContainer: '#2a2525',
+  surfaceHigh: '#342e2e',
+  text: '#f6eeee',
+  muted: '#cbbdbd',
+  variant: '#e0c3c0',
+  outline: '#9d8380',
+  outlineSoft: '#4e3c3b',
+  success: '#62d7a4',
+  successSoft: '#15382b',
+  warning: '#ffc260',
+  warningSoft: '#3b2b12',
+  danger: '#ff8b82',
+  dangerSoft: '#411c1b',
+});
+
+export const colors = Object.freeze(
+  Appearance.getColorScheme() === 'dark' ? darkColors : lightColors,
+);
 
 export const spacing = Object.freeze({
   xxs: 4,

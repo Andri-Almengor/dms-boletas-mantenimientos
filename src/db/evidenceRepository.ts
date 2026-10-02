@@ -216,139 +216,155 @@ export async function attachLocalFileToEvidence(
   );
 }
 
-export async function saveLocalEvidence(
+export type SaveLocalEvidenceInput = {
+  maintenanceId: string;
+  deviceId: string;
+  localFileId?: string;
+  localFile?: {
+    localUri: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+  };
+  patch: EvidenceRecord;
+};
+
+export async function saveLocalEvidenceTx(
   db: SQLiteDatabase,
   scopeKey: string,
-  input: {
-    maintenanceId: string;
-    deviceId: string;
-    localFileId?: string;
-    localFile?: {
-      localUri: string;
-      fileName: string;
-      mimeType: string;
-      fileSize: number;
-    };
-    patch: EvidenceRecord;
-  },
+  input: SaveLocalEvidenceInput,
 ) {
   let evidenceId = idOf(input.patch);
   let operationId = '';
 
-  await db.withExclusiveTransactionAsync(async (transaction) => {
-    const existing = evidenceId
-      ? await transaction.getFirstAsync<{
-          payload_json: string;
-          sync_status: string;
-          local_file_id: string;
-        }>(
-          `SELECT payload_json, sync_status, local_file_id
-           FROM local_maintenance_evidence
-           WHERE scope_key = ? AND evidence_id = ?`,
-          scopeKey,
-          evidenceId,
-        )
-      : null;
-
-    if (!evidenceId) evidenceId = createLocalId('evidencia');
-
-    const existingPayload = existing
-      ? parseJsonObject<EvidenceRecord>(existing.payload_json)
-      : null;
-    let merged = existing
-      ? mergeJsonPayload(existing.payload_json, input.patch)
-      : { ...input.patch };
-
-    merged.FotoDispositivoID = evidenceId;
-    merged.imageId = evidenceId;
-    merged.MantenimientoID = input.maintenanceId;
-    merged.maintenanceId = input.maintenanceId;
-    merged.DispositivoMantenimientoRef = input.deviceId;
-    merged.deviceId = input.deviceId;
-
-    if (existingPayload && !merged.__syncBase) {
-      merged = withSyncBase(
-        merged,
-        maintenanceEvidenceSyncBase(existingPayload, input.maintenanceId),
-      );
-    }
-
-    const unresolved = await listUnresolvedEntityOperations(
-      transaction,
-      scopeKey,
-      'maintenanceEvidence',
-      evidenceId,
-    );
-    const mediaUpload = [...unresolved]
-      .reverse()
-      .find((operation) => operation.operation_kind === 'MEDIA_UPLOAD');
-    const localOnly = !existing
-      || existing.sync_status === 'LOCAL_ONLY'
-      || Boolean(mediaUpload);
-    let localFileId = String(input.localFileId || existing?.local_file_id || '');
-    if (input.localFile) {
-      localFileId = await registerLocalFile(transaction, {
-        fileId: localFileId || undefined,
+  const existing = evidenceId
+    ? await db.getFirstAsync<{
+        payload_json: string;
+        sync_status: string;
+        local_file_id: string;
+      }>(
+        `SELECT payload_json, sync_status, local_file_id
+         FROM local_maintenance_evidence
+         WHERE scope_key = ? AND evidence_id = ?`,
         scopeKey,
-        ownerType: 'maintenanceEvidence',
-        ownerId: evidenceId,
-        localUri: input.localFile.localUri,
-        fileName: input.localFile.fileName,
-        mimeType: input.localFile.mimeType,
-        fileSize: input.localFile.fileSize,
-      });
-    }
+        evidenceId,
+      )
+    : null;
 
-    await upsertEvidenceRow(
-      transaction,
-      scopeKey,
+  if (!evidenceId) evidenceId = createLocalId('evidencia');
+
+  const existingPayload = existing
+    ? parseJsonObject<EvidenceRecord>(existing.payload_json)
+    : null;
+  let merged = existing
+    ? mergeJsonPayload(existing.payload_json, input.patch)
+    : { ...input.patch };
+
+  merged.FotoDispositivoID = evidenceId;
+  merged.imageId = evidenceId;
+  merged.MantenimientoID = input.maintenanceId;
+  merged.maintenanceId = input.maintenanceId;
+  merged.DispositivoMantenimientoRef = input.deviceId;
+  merged.deviceId = input.deviceId;
+
+  if (existingPayload && !merged.__syncBase) {
+    merged = withSyncBase(
       merged,
-      localOnly ? 'LOCAL_ONLY' : 'PENDING',
-      localFileId,
+      maintenanceEvidenceSyncBase(existingPayload, input.maintenanceId),
     );
+  }
 
-    const deviceCreate = await findPendingEntityCreateOperation(
+  const unresolved = await listUnresolvedEntityOperations(
+    db,
+    scopeKey,
+    'maintenanceEvidence',
+    evidenceId,
+  );
+  const mediaUpload = [...unresolved]
+    .reverse()
+    .find((operation) => operation.operation_kind === 'MEDIA_UPLOAD');
+  const localOnly = !existing
+    || existing.sync_status === 'LOCAL_ONLY'
+    || Boolean(mediaUpload);
+  let localFileId = String(input.localFileId || existing?.local_file_id || '');
+
+  if (input.localFile) {
+    localFileId = await registerLocalFile(db, {
+      fileId: localFileId || undefined,
+      scopeKey,
+      ownerType: 'maintenanceEvidence',
+      ownerId: evidenceId,
+      localUri: input.localFile.localUri,
+      fileName: input.localFile.fileName,
+      mimeType: input.localFile.mimeType,
+      fileSize: input.localFile.fileSize,
+    });
+  }
+
+  await upsertEvidenceRow(
+    db,
+    scopeKey,
+    merged,
+    localOnly ? 'LOCAL_ONLY' : 'PENDING',
+    localFileId,
+  );
+
+  const deviceCreate = await findPendingEntityCreateOperation(
+    db,
+    scopeKey,
+    'maintenanceDevice',
+    input.deviceId,
+  );
+
+  if (localOnly && mediaUpload?.status === 'IN_FLIGHT') {
+    const queued = await enqueueOutboxOperationTx(db, {
+      scopeKey,
+      operationKind: 'UPDATE',
+      route: 'maintenance.images.update',
+      entityType: 'maintenanceEvidence',
+      entityId: evidenceId,
+      aggregateId: input.maintenanceId,
+      payload: merged,
+      priority: 75,
+      dependsOnOperationId: mediaUpload.operation_id,
+    });
+    operationId = queued.operationId;
+  } else {
+    const queued = await enqueueOutboxOperationTx(db, {
+      scopeKey,
+      operationKind: localOnly ? 'MEDIA_UPLOAD' : 'UPDATE',
+      route: localOnly ? 'maintenance.images.upload' : 'maintenance.images.update',
+      entityType: 'maintenanceEvidence',
+      entityId: evidenceId,
+      aggregateId: input.maintenanceId,
+      localFileId: localOnly ? localFileId : '',
+      payload: merged,
+      priority: localOnly ? 70 : 75,
+      dependsOnOperationId: localOnly
+        ? deviceCreate?.operation_id || ''
+        : '',
+    });
+    operationId = queued.operationId;
+  }
+
+  await refreshDetailCountsTx(db, scopeKey, input.maintenanceId);
+  return { evidenceId, operationId };
+}
+
+export async function saveLocalEvidence(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  input: SaveLocalEvidenceInput,
+) {
+  let result = { evidenceId: '', operationId: '' };
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    result = await saveLocalEvidenceTx(
       transaction,
       scopeKey,
-      'maintenanceDevice',
-      input.deviceId,
+      input,
     );
-
-    if (localOnly && mediaUpload?.status === 'IN_FLIGHT') {
-      const queued = await enqueueOutboxOperationTx(transaction, {
-        scopeKey,
-        operationKind: 'UPDATE',
-        route: 'maintenance.images.update',
-        entityType: 'maintenanceEvidence',
-        entityId: evidenceId,
-        aggregateId: input.maintenanceId,
-        payload: merged,
-        priority: 75,
-        dependsOnOperationId: mediaUpload.operation_id,
-      });
-      operationId = queued.operationId;
-    } else {
-      const queued = await enqueueOutboxOperationTx(transaction, {
-        scopeKey,
-        operationKind: localOnly ? 'MEDIA_UPLOAD' : 'UPDATE',
-        route: localOnly ? 'maintenance.images.upload' : 'maintenance.images.update',
-        entityType: 'maintenanceEvidence',
-        entityId: evidenceId,
-        aggregateId: input.maintenanceId,
-        localFileId: localOnly ? localFileId : '',
-        payload: merged,
-        priority: localOnly ? 70 : 75,
-        dependsOnOperationId: localOnly
-          ? deviceCreate?.operation_id || ''
-          : '',
-      });
-      operationId = queued.operationId;
-    }
-
-    await refreshDetailCountsTx(transaction, scopeKey, input.maintenanceId);
   });
-
-  return { evidenceId, operationId };
+  return result;
 }
 
 export async function deleteLocalEvidence(
