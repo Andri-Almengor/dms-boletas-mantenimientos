@@ -48,7 +48,7 @@ type Props = {
   maintenanceType: unknown;
   device: RecordLike;
   items: DraftMaintenanceEvidence[];
-  onChange: (items: DraftMaintenanceEvidence[]) => void;
+  onChange: (items: DraftMaintenanceEvidence[]) => void | Promise<void>;
   disabled?: boolean;
 };
 
@@ -127,7 +127,13 @@ export function MaintenanceEvidenceDraftSection({
       }
     }
 
-    onChange(next);
+    try {
+      await onChange(next);
+    } catch (persistError) {
+      failures.push(persistError instanceof Error
+        ? persistError.message
+        : 'No se pudo guardar el borrador offline.');
+    }
     if (failures.length) setError(failures[0]);
   }, [
     disabled,
@@ -141,18 +147,20 @@ export function MaintenanceEvidenceDraftSection({
 
   async function remove(item: DraftMaintenanceEvidence) {
     await removeLocalEvidenceFile(item.localUri);
-    onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
+    await onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
   }
 
   function patch(
     evidenceId: string,
     values: Partial<DraftMaintenanceEvidence>,
   ) {
-    onChange(items.map((item) => (
+    Promise.resolve(onChange(items.map((item) => (
       item.evidenceId === evidenceId
         ? { ...item, ...values }
         : item
-    )));
+    )))).catch((persistError) => setError(persistError instanceof Error
+      ? persistError.message
+      : 'No se pudo guardar el cambio del borrador.'));
   }
 
   return (
