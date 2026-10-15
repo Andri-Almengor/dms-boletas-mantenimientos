@@ -16,6 +16,7 @@ const RESOURCE_ID_KEYS: Record<string, string[]> = {
   assignableUser: ['UsuarioID', 'userId', 'id'],
   maintenanceQuestion: ['PreguntaDispositivoID', 'questionId', 'id'],
   maintenanceConfig: ['id'],
+  maintenanceEvidenceDraft: ['id'],
 };
 
 const RESOURCE_PARENT_KEYS: Record<string, string[]> = {
@@ -25,6 +26,7 @@ const RESOURCE_PARENT_KEYS: Record<string, string[]> = {
   model: ['FabricanteID', 'fabricanteId', 'manufacturerId'],
   deviceManufacturerRelation: ['TipoDispositivoID', 'tipoDispositivoId', 'deviceTypeId'],
   maintenanceQuestion: ['TipoDispositivoID', 'tipoDispositivoId'],
+  maintenanceEvidenceDraft: ['maintenanceId'],
 };
 
 const RESOURCE_LABEL_KEYS: Record<string, string[]> = {
