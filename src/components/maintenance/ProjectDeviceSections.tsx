@@ -4,7 +4,7 @@ import {
 } from '@/features/maintenance/maintenanceProject';
 import {
   MaintenanceQuestion,
-  parseAnswers,
+  deviceSavedAnswers,
   questionsForDevice,
 } from '@/features/maintenance/maintenanceQuestions';
 import {
@@ -61,7 +61,7 @@ function RelatedComponent({
   evidenceCount: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const answers = parseAnswers(item.respuestas || item.RespuestasJSON);
+  const answers = deviceSavedAnswers(item);
   const name = field(item.nombre || item.NombreDispositivo);
   return (
     <View style={styles.component}>
@@ -120,7 +120,7 @@ export function ProjectDeviceSections({
     [questions, device],
   );
   const answers = useMemo(
-    () => parseAnswers(device.respuestas || device.RespuestasJSON),
+    () => deviceSavedAnswers(device),
     [device],
   );
   const progress = useMemo(
