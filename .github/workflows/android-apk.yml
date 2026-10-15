@@ -76,3 +76,51 @@ jobs:
             android-apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+  emulator-smoke:
+    name: Android emulator smoke
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified standalone APK
+        uses: actions/download-artifact@v4
+        with:
+          name: dms-mantenimientos-android-standalone
+          path: apk-artifact
+
+      - name: Enable KVM for Android emulator
+        run: |
+          if test -e /dev/kvm; then
+            sudo chmod 666 /dev/kvm
+          fi
+
+      - name: Install and smoke-test APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            set -euo pipefail
+            APK="$(find apk-artifact -type f -name app-release.apk -print -quit)"
+            test -n "$APK"
+            bash scripts/android-emulator-smoke.sh "$APK"
+
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dms-mantenimientos-android-emulator-smoke
+          path: android-smoke/
+          if-no-files-found: warn
+          retention-days: 7
