@@ -15,13 +15,17 @@ on:
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -52,16 +56,73 @@ jobs:
           CI: "1"
         run: npx expo prebuild --platform android --clean
 
-      - name: Build installable debug APK
+      # React Native no incluye el bundle JS en assembleDebug: necesita Metro.
+      # assembleRelease incluye JS/Hermes y permite probar SIN servidor de desarrollo.
+      # El prebuild de Expo usa una clave DEBUG para firmar release local;
+      # distribución/actualizaciones estables deben hacerse vía EAS preview.
+      - name: Build standalone Android APK
         working-directory: android
+        env:
+          CI: "1"
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK artifact
+      - name: Verify standalone APK, package and signature
+        run: bash scripts/verify-android-apk.sh
+
+      - name: Upload standalone APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dms-mantenimientos-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: dms-mantenimientos-android-standalone
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android-apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+  emulator-smoke:
+    name: Android emulator smoke
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified standalone APK
+        uses: actions/download-artifact@v4
+        with:
+          name: dms-mantenimientos-android-standalone
+          path: apk-artifact
+
+      - name: Enable KVM for Android emulator
+        run: |
+          if test -e /dev/kvm; then
+            sudo chmod 666 /dev/kvm
+          fi
+
+      - name: Install and smoke-test APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
+          # android-emulator-runner ejecuta "script" mediante /bin/sh.
+          # El propio archivo ejecutado con bash ya habilita pipefail.
+          script: bash scripts/android-emulator-smoke.sh "$(find apk-artifact -type f -name app-release.apk -print -quit)"
+
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dms-mantenimientos-android-emulator-smoke
+          path: android-smoke/
+          if-no-files-found: warn
+          retention-days: 7

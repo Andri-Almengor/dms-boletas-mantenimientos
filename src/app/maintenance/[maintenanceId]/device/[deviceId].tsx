@@ -3,8 +3,16 @@ import {
   readLocalDeviceDetail,
 } from '@/db/maintenanceDetailRepository';
 import { MaintenanceEvidenceManager } from '@/components/maintenance/MaintenanceEvidenceManager';
+import { ProjectDeviceSections } from '@/components/maintenance/ProjectDeviceSections';
 import { useAuth } from '@/auth/AuthProvider';
 import { getLocalMaintenance } from '@/db/maintenanceRepository';
+import { listResourceItems } from '@/db/resourceRepository';
+import {
+  MaintenanceQuestion,
+  normalizeMaintenanceQuestion,
+} from '@/features/maintenance/maintenanceQuestions';
+import { isProjectMaintenance } from '@/features/maintenance/maintenanceProject';
+import { useSync } from '@/sync/SyncProvider';
 import {
   canEditMaintenance,
   maintenanceReadOnly,
@@ -13,6 +21,7 @@ import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import {
   Redirect,
   Stack,
+  useFocusEffect,
   useLocalSearchParams,
   useRouter,
 } from 'expo-router';
@@ -54,6 +63,7 @@ export default function DeviceDetailScreen() {
   const deviceId = String(params.deviceId || '');
   const db = useSQLiteContext();
   const router = useRouter();
+  const { lastSuccessAt } = useSync();
   const {
     user,
     loading: authLoading,
@@ -62,30 +72,49 @@ export default function DeviceDetailScreen() {
   } = useAuth();
   const [detail, setDetail] = useState<LocalDeviceDetail | null>(null);
   const [maintenance, setMaintenance] = useState<Record<string, unknown> | null>(null);
+  const [questions, setQuestions] = useState<MaintenanceQuestion[]>([]);
 
   const load = useCallback(async () => {
     if (!dataScope || !maintenanceId || !deviceId) return;
-    const [deviceDetail, maintenanceRow] = await Promise.all([
-      readLocalDeviceDetail(
-        db,
-        dataScope,
-        maintenanceId,
-        deviceId,
-      ),
-      getLocalMaintenance(db, dataScope, maintenanceId),
-    ]);
+    // SQLite usa una misma conexión; lecturas secuenciales evitan colisiones
+    // con statements asíncronos del SyncCoordinator en Android.
+    const deviceDetail = await readLocalDeviceDetail(
+      db,
+      dataScope,
+      maintenanceId,
+      deviceId,
+    );
+    const maintenanceRow = await getLocalMaintenance(db, dataScope, maintenanceId);
+    let catalog: MaintenanceQuestion[] = [];
+    if (deviceDetail && isProjectMaintenance(
+      maintenanceRow?.TipoMantenimiento || deviceDetail.device.TipoMantenimiento,
+    )) {
+      const configRows = await listResourceItems(db, dataScope, 'maintenanceConfig');
+      const config = configRows[0] || {};
+      const configQuestions = Array.isArray(config.questions)
+        ? config.questions as Record<string, unknown>[] : [];
+      // La ruta de preguntas puede estar restringida al usuario, pero el
+      // snapshot guardado en la boleta permanece visible sin sincronizar.
+      const questionRows = configQuestions.length
+        ? configQuestions
+        : await listResourceItems(db, dataScope, 'maintenanceQuestion');
+      catalog = questionRows.map((item, index) => normalizeMaintenanceQuestion(item, index));
+    }
     setDetail(deviceDetail);
     setMaintenance(maintenanceRow);
+    setQuestions(catalog);
   }, [db, dataScope, maintenanceId, deviceId]);
 
   useEffect(() => {
     setDetail(null);
     setMaintenance(null);
+    setQuestions([]);
   }, [dataScope, maintenanceId, deviceId]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    // Refresca checklist y relaciones después de editar offline.
     load().catch(() => undefined);
-  }, [load]);
+  }, [load, lastSuccessAt]));
 
   if (authLoading) {
     return (
@@ -188,7 +217,19 @@ export default function DeviceDetailScreen() {
           </View>
         ) : null}
 
+        {isProjectMaintenance(
+          maintenance?.TipoMantenimiento || device.TipoMantenimiento,
+        ) ? (
+          <ProjectDeviceSections
+            device={device}
+            questions={questions}
+            projectChecklist={maintenance?.ProyectoChecklistJSON || maintenance?.projectChecklist}
+            evidence={detail.evidence}
+          />
+        ) : null}
+
         <MaintenanceEvidenceManager
+          onChanged={load}
           maintenanceId={maintenanceId}
           deviceId={deviceId}
           device={device}

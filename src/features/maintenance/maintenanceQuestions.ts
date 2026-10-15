@@ -69,6 +69,39 @@ export function normalizeMaintenanceQuestion(
   };
 }
 
+/**
+ * La web guarda el snapshot de preguntas en distintas representaciones
+ * históricas. Reutilizarlo preserva la lectura offline si el catálogo cambia
+ * o aún no se pudo sincronizar.
+ */
+export function questionDetailsForDevice(device: RecordLike): RecordLike[] {
+  if (Array.isArray(device.questionDetails) && device.questionDetails.length) {
+    return device.questionDetails as RecordLike[];
+  }
+  if (Array.isArray(device.respuestasDetalle) && device.respuestasDetalle.length) {
+    return device.respuestasDetalle as RecordLike[];
+  }
+  // No descartar __preguntas de RespuestasJSON si el campo 'respuestas' es {}.
+  for (const source of [device.respuestas, device.RespuestasJSON]) {
+    const answers = parseStoredObject(source);
+    if (Array.isArray(answers.__preguntas) && answers.__preguntas.length) {
+      return answers.__preguntas as RecordLike[];
+    }
+  }
+  return [];
+}
+
+function parseStoredObject(value: unknown): RecordLike {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as RecordLike;
+  try {
+    const parsed: unknown = JSON.parse(String(value || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as RecordLike : {};
+  } catch {
+    return {};
+  }
+}
+
 export function questionsForDevice(
   questions: MaintenanceQuestion[],
   device: RecordLike,
@@ -100,14 +133,12 @@ export function questionsForDevice(
     })
     .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, 'es'));
 
-  const historical = Array.isArray(device.questionDetails)
-    ? (device.questionDetails as RecordLike[])
-      .map(normalizeMaintenanceQuestion)
-      .filter((question) => question.key && !active.some((entry) => entry.key === question.key))
-    : [];
+  const historical = questionDetailsForDevice(device)
+    .map(normalizeMaintenanceQuestion)
+    .filter((question) => question.key && !active.some((entry) => entry.key === question.key));
 
   if (active.length || historical.length) {
-    const answers = parseAnswers(device.respuestas || device.RespuestasJSON);
+    const answers = deviceSavedAnswers(device);
     return [...active.map((question) => ({
       ...question,
       value: answers[question.key] ?? question.value ?? '',
@@ -134,7 +165,7 @@ export function questionsForDevice(
     appliesTo: 'MANTENIMIENTO',
     relatedTypeId: '',
     config: { required: true },
-    value: parseAnswers(device.respuestas || device.RespuestasJSON)[key] ?? '',
+    value: deviceSavedAnswers(device)[key] ?? '',
     activeAtSave: true,
     historical: false,
   }));
@@ -153,6 +184,17 @@ export function parseAnswers(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * No perder respuestas offline si un snapshot histórico incluye
+ * 'respuestas: {}' y mantiene el contenido real en RespuestasJSON.
+ */
+export function deviceSavedAnswers(device: RecordLike): Record<string, unknown> {
+  const direct = parseAnswers(device.respuestas);
+  return Object.keys(direct).length > 0
+    ? direct
+    : parseAnswers(device.RespuestasJSON);
 }
 
 export function updateQuestionAnswer(

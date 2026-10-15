@@ -1,4 +1,8 @@
 import { colors, radius, spacing } from '@/theme/tokens';
+import {
+  isProjectMaintenance,
+  projectChecklistProgressForDevice,
+} from '@/features/maintenance/maintenanceProject';
 import React from 'react';
 import {
   Pressable,
@@ -10,6 +14,8 @@ import {
 type Props = {
   item: Record<string, unknown>;
   onPress: () => void;
+  maintenanceType?: unknown;
+  projectChecklist?: unknown;
 };
 
 function value(
@@ -38,7 +44,12 @@ function localSyncStatus(item: Record<string, unknown>) {
   ).toUpperCase();
 }
 
-export function DeviceCard({ item, onPress }: Props) {
+export function DeviceCard({
+  item,
+  onPress,
+  maintenanceType,
+  projectChecklist,
+}: Props) {
   const images = Array.isArray(item.Imagenes) ? item.Imagenes : [];
   const state = value(item, ['Estado', 'estado'], 'Pendiente');
   const category = value(
@@ -49,6 +60,9 @@ export function DeviceCard({ item, onPress }: Props) {
   const manufacturer = value(item, ['Fabricante', 'fabricante']);
   const model = value(item, ['Modelo', 'modelo']);
   const serial = value(item, ['Serie', 'serie']);
+  const projectProgress = isProjectMaintenance(maintenanceType)
+    ? projectChecklistProgressForDevice(projectChecklist, item)
+    : null;
   const syncStatus = localSyncStatus(item);
   const pending = Boolean(syncStatus && syncStatus !== 'SYNCED');
   const good = ['BUENO', 'FUNCIONAL', 'OK', 'ACTIVO', 'CORRECTO']
@@ -95,6 +109,12 @@ export function DeviceCard({ item, onPress }: Props) {
             ▧ {images.length}
           </Text>
         </View>
+        {projectProgress && projectProgress.total > 0 ? (
+          <Text style={styles.projectProgress}>
+            Checklist: {projectProgress.completed}/{projectProgress.total}
+            {' · '}{projectProgress.percent}% completado
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.end}>
@@ -151,6 +171,12 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minWidth: 0,
+  },
+  projectProgress: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 5,
   },
   titleRow: {
     flexDirection: 'row',

@@ -1,21 +1,35 @@
 # Validación Android — DMS Mantenimientos
 
-Este checklist corresponde a la primera APK instalable de la app móvil.
+Este checklist documenta pruebas de campo que **requieren ejecución en teléfonos reales**. Automatizar una compilación o un arranque en emulador no las sustituye. El registro de ejecución por rol/equipo está en [Etapa 15: matriz de aceptación](stage15-android-field-validation.md).
 
 ## Tipo de build
 
-### APK de CI
+### APK autónoma de CI
 
-El workflow `Android APK` genera un `app-debug.apk` instalable para pruebas técnicas.
+El workflow `Android APK` genera `app-release.apk` firmado con la **clave de desarrollo** del prebuild. Incluye JavaScript/Hermes y **no necesita Metro**. El job verifica el paquete, `versionCode`, bundle, firma digital y SHA-256; después instala y arranca la APK en un emulador, online y offline.
 
-- No contiene secretos.
-- Usa la configuración nativa real generada por Expo Prebuild.
-- Permite validar SQLite, cámara, galería, video, flujo rápido de dispositivos y BackgroundTask.
-- La firma debug del runner no se considera una identidad de distribución estable. Si una APK de CI futura no puede actualizar la anterior, se debe desinstalar la build debug de prueba.
+- Versión candidata: `0.5.0` (`versionCode: 2`).
+- Artefacto descargable: `dms-mantenimientos-android-standalone` en la ejecución de GitHub Actions, junto con `android-apk.sha256`.
+- No contiene intencionalmente credenciales privadas ni URL de PostgreSQL; usa el endpoint de backend público y tokens obtenidos tras iniciar sesión.
+- La firma de desarrollo **no es estable para actualizar una instalación EAS u otra firma**. Es exclusiva para pruebas técnicas. No se debe publicar en Play Store ni distribuir a usuarios finales.
+- Una compilación de APK correcta y un emulador que arranca no demuestran que cámara real, conectividad intermitente o sincronización de campo funcionen.
+
+Validación local tras prebuild:
+
+```bash
+cd android
+./gradlew assembleRelease --no-daemon
+cd ..
+bash scripts/verify-android-apk.sh
+```
+
+Se necesita JDK 17 y un Android SDK con build-tools configurados en `ANDROID_HOME` o `ANDROID_SDK_ROOT`.
+
+No utilizar `app-debug.apk` como aplicación independiente: la variante debug de React Native normalmente espera un servidor Metro.
 
 ### EAS preview
 
-Para distribución interna estable:
+Para distribución interna estable y actualizaciones firmadas con una misma identidad Android:
 
 ```bash
 npx eas-cli@latest login

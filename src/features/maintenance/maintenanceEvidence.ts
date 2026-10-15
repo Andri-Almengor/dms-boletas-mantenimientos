@@ -1,4 +1,5 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
+import { deviceSavedAnswers } from '@/features/maintenance/maintenanceQuestions';
 import {
   normalizeProjectRelationValue,
 } from '@/features/maintenance/maintenanceProject';
@@ -89,6 +90,40 @@ export function evidenceFileExtension(
   }
 }
 
+
+/**
+ * Fecha de captura y fecha de carga son eventos distintos en modo offline.
+ * Nunca sustituir FechaCreacion por FechaActualizacion ni por la hora actual.
+ */
+export function formatCostaRicaEvidenceDate(value: unknown): string {
+  const raw = text(value);
+  if (!raw) return 'Sin fecha';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-CR', {
+    timeZone: 'America/Costa_Rica',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+export function evidenceDateLabels(evidence: RecordLike = {}, syncStatus: unknown = '') {
+  const captured = evidence.FechaCaptura || evidence.fechaCaptura || evidence.capturedAt;
+  // FechaCreacion del backend se establece al recibir el archivo en Drive.
+  const uploaded = evidence.FechaCreacion || evidence.fechaCreacion;
+  const pending = ['LOCAL_ONLY', 'PENDING', 'FAILED', 'BLOCKED', 'CONFLICT']
+    .includes(text(syncStatus).toUpperCase());
+  return {
+    capture: captured
+      ? `Capturada: ${formatCostaRicaEvidenceDate(captured)}` : '',
+    upload: uploaded
+      ? `Cargada: ${formatCostaRicaEvidenceDate(uploaded)}`
+      : pending
+        ? 'Carga pendiente de sincronización'
+        : 'Fecha de carga no disponible',
+  };
+}
+
 export function normalizeEvidenceType(value: unknown) {
   return text(value).toLowerCase().includes('desp') ? 'Despues' : 'Antes';
 }
@@ -132,21 +167,6 @@ export function validatePickedEvidenceAsset(asset: ImagePickerAsset) {
   };
 }
 
-function parseAnswers(device: RecordLike = {}) {
-  const direct = device.respuestas;
-  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
-    return direct as Record<string, unknown>;
-  }
-  try {
-    const parsed = JSON.parse(text(device.RespuestasJSON) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function questionLabelMap(device: RecordLike, answers: Record<string, unknown>) {
   const details = Array.isArray(device.questionDetails)
     ? device.questionDetails as RecordLike[]
@@ -166,7 +186,7 @@ function questionLabelMap(device: RecordLike, answers: Record<string, unknown>) 
 export function projectEvidenceTargets(
   device: RecordLike = {},
 ): ProjectEvidenceTarget[] {
-  const answers = parseAnswers(device);
+  const answers = deviceSavedAnswers(device);
   const labels = questionLabelMap(device, answers);
   const deviceName = text(
     device.nombre

@@ -385,6 +385,45 @@ El checklist completo de dispositivo físico está en `docs/android-validation-c
 
 El inventario de mejoras web y las próximas etapas están documentados en [Paridad web ↔ móvil](docs/web-mobile-maintenance-parity-20261015.md).
 
+### Etapa 12 — Progreso e información de evidencias offline ✅
+
+- El detalle muestra **esperados/registrados/evidencias** y cantidades por tipo (histórico o dinámico), calculadas desde SQLite.
+- Para MANTENIMIENTO con inventario planificado completo distingue: **solo ANTES, ANTES y DESPUÉS, solo DESPUÉS, sin fotos y sin clasificación**. Múltiples fotos ANTES del mismo equipo no multiplican pendientes.
+- PROYECTO muestra avance de inventario y presencia de evidencias sin aplicar fases ANTES/DESPUÉS ni alterar su checklist.
+- Cada tarjeta de evidencia indica **Cargada** con fecha real de servidor (`FechaCreacion`) y **Capturada** con fecha original (`FechaCaptura`), en zona horaria de Costa Rica. Una evidencia aún local muestra carga pendiente.
+- El resumen se refresca al regresar al detalle tras cambios locales; las fechas se actualizan tras sincronización sin consultar Drive directamente.
+- Referencia y pruebas: [Etapa 12 — paridad offline](docs/stage12-progress-evidence-offline.md). Mantiene la creación masiva de la etapa 11 fusionada desde PR #7.
+
+### Etapa 13 — Proyecto offline (detalle, relaciones y checklist) ✅
+
+- El detalle de un dispositivo de PROYECTO muestra sus preguntas configuradas y respuestas, incluidos registros históricos guardados en SQLite.
+- Los componentes relacionados (lectores, magnetos y otros) aparecen en tarjetas desplegables con fabricante, modelo, serie, MAC, preguntas del tipo relacionado y contador de evidencias por destino.
+- El checklist incluye el estado Sí/No o Pendiente/Realizado y las notas pendientes; las tarjetas generales muestran el porcentaje correspondiente a cada dispositivo.
+- Al regresar del editor se actualiza el detalle desde SQLite sin depender de conectividad. Se reutilizan el catálogo local, las reglas del dominio y la sincronización existentes.
+- Se mantienen las funciones de alta masiva de etapa 11 y progreso/evidencias de etapa 12 sin cambiar firma, finalización, roles, permisos ni backend.
+
+Pruebas y límites: [Etapa 13 — Proyecto offline](docs/stage13-project-offline-parity.md).
+
+### Etapa 14 — Recuperación de evidencias al volver de la cámara ✅
+
+- Los borradores de evidencias del formulario de **nuevo dispositivo** se mantienen en SQLite por usuario/mantenimiento y se restauran después de recrear la pantalla, cerrar y reabrir Android o trabajar sin conexión.
+- Se elimina el borrado automático de fotos no guardadas al desmontar la pantalla. El manifiesto se consume de manera **atómica** cuando el dispositivo y su outbox quedan guardados.
+- Los archivos de borrador activos quedan protegidos frente a housekeeping; al eliminar una foto se actualiza primero SQLite y después se limpia el archivo físico.
+- La recuperación `getPendingResultAsync` de Expo Camera/ImagePicker evita capturas duplicadas y mantiene un único procesamiento por selección.
+- Sin migración, endpoints adicionales, permisos ni alteraciones del horario de sincronización.
+
+Pruebas y alcance: [Etapa 14 — recuperación offline](docs/stage14-camera-offline-recovery.md).
+
+### Etapa 15 — APK autónoma y validación de campo ✅ (automatización)
+
+- El workflow **Android APK** construye `assembleRelease` con bundle de JavaScript integrado (sin Metro), valida identificador `com.solutionsdms.dmsmantenimientos`, versión Android, firma y SHA-256.
+- Distribuye el artefacto de **pruebas técnicas** `dms-mantenimientos-android-standalone` y la huella `android-apk.sha256`; no corresponde a una firma estable de producción.
+- Un segundo job instala e inicia la APK en **emulador Android** conectado y en modo offline para comprobar un arranque sin Metro. Conserva capturas/logs de fallos del entorno de prueba.
+- Versión candidata Android: **0.5.0 / versionCode 2**. Para instalaciones que deban actualizarse sin perder datos se sigue usando `EAS preview` con una misma firma.
+- Se añadieron regresiones del horario real 07:00–17:00 Costa Rica y documentación de 25 pruebas físicas; **cámara real, Drive y sincronización con usuarios necesitan validación manual** antes de distribuir a producción.
+
+Ver [etapa 15: matriz de campo](docs/stage15-android-field-validation.md) y [guía de Android](docs/android-validation-checklist.md).
+
 ## Política de sincronización
 
 Zona horaria operativa:

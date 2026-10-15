@@ -42,13 +42,14 @@ export type DraftMaintenanceEvidence = {
   note: string;
   capturedAt: string;
   targetValue: string;
+  sourceUri?: string;
 };
 
 type Props = {
   maintenanceType: unknown;
   device: RecordLike;
   items: DraftMaintenanceEvidence[];
-  onChange: (items: DraftMaintenanceEvidence[]) => void;
+  onChange: (items: DraftMaintenanceEvidence[]) => void | Promise<void>;
   disabled?: boolean;
 };
 
@@ -81,9 +82,13 @@ export function MaintenanceEvidenceDraftSection({
     if (!assets.length || disabled) return;
     setError('');
     const next = [...items];
+    const seen = new Set(next.map((item) => item.sourceUri).filter(Boolean));
     const failures: string[] = [];
 
     for (const asset of assets) {
+      // Android puede entregar el mismo resultado al volver de cámara y
+      // al recuperar una Activity; no agregar dos veces al borrador.
+      if (seen.has(asset.uri)) continue;
       const evidenceId = createLocalId('evidencia');
       try {
         const stored = await persistPickedEvidenceAsset({
@@ -99,6 +104,7 @@ export function MaintenanceEvidenceDraftSection({
         };
         next.push({
           evidenceId,
+          sourceUri: asset.uri,
           localFileId: stored.localFileId,
           localUri: stored.localUri,
           asset: persistedAsset,
@@ -118,6 +124,7 @@ export function MaintenanceEvidenceDraftSection({
               )
             : 'DISPOSITIVO',
         });
+        seen.add(asset.uri);
       } catch (assetError) {
         failures.push(
           assetError instanceof Error
@@ -127,7 +134,13 @@ export function MaintenanceEvidenceDraftSection({
       }
     }
 
-    onChange(next);
+    try {
+      await onChange(next);
+    } catch (persistError) {
+      failures.push(persistError instanceof Error
+        ? persistError.message
+        : 'No se pudo guardar el borrador offline.');
+    }
     if (failures.length) setError(failures[0]);
   }, [
     disabled,
@@ -140,19 +153,28 @@ export function MaintenanceEvidenceDraftSection({
   ]);
 
   async function remove(item: DraftMaintenanceEvidence) {
-    await removeLocalEvidenceFile(item.localUri);
-    onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
+    // Primero retirar del manifiesto durable. Si el SO interrumpe después,
+    // la limpieza segura de huérfanos puede eliminar el archivo más tarde.
+    try {
+      await onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
+      await removeLocalEvidenceFile(item.localUri);
+    } catch (removeError) {
+      setError(removeError instanceof Error
+        ? removeError.message : 'No se pudo eliminar la evidencia del borrador.');
+    }
   }
 
   function patch(
     evidenceId: string,
     values: Partial<DraftMaintenanceEvidence>,
   ) {
-    onChange(items.map((item) => (
+    Promise.resolve(onChange(items.map((item) => (
       item.evidenceId === evidenceId
         ? { ...item, ...values }
         : item
-    )));
+    )))).catch((persistError) => setError(persistError instanceof Error
+      ? persistError.message
+      : 'No se pudo guardar el cambio del borrador.'));
   }
 
   return (

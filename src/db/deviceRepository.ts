@@ -483,6 +483,7 @@ export async function saveLocalDeviceWithEvidence(
   patch: DeviceRecord,
   input: SaveDeviceOptions & {
     evidence?: Omit<SaveLocalEvidenceInput, 'maintenanceId' | 'deviceId'>[];
+    clearEvidenceDrafts?: boolean;
   } = {},
 ) {
   let result = { deviceId: '', operationId: '', evidenceCount: 0 };
@@ -508,6 +509,16 @@ export async function saveLocalDeviceWithEvidence(
         },
       );
       evidenceCount += 1;
+    }
+    // La conversión del borrador a evidencia/outbox es atómica:
+    // si falla la transacción, el manifiesto continúa recuperable.
+    if (input.clearEvidenceDrafts) {
+      await transaction.runAsync(
+        `DELETE FROM local_resource_items
+         WHERE scope_key = ? AND resource = 'maintenanceEvidenceDraft'
+           AND parent_id = ?`,
+        scopeKey, maintenanceId,
+      );
     }
 
     result = {

@@ -18,7 +18,8 @@ import {
 } from '@/features/maintenance/maintenanceProject';
 import {
   MaintenanceQuestion,
-  parseAnswers,
+  deviceSavedAnswers,
+  questionDetailsForDevice,
   questionsForDevice,
 } from '@/features/maintenance/maintenanceQuestions';
 import {
@@ -298,13 +299,8 @@ export function mapDeviceToEditor(
     inUse: text(row.EnUso || row.enUso || base.inUse),
     status: text(row.Estado || row.estado || 'Pendiente'),
     observation: text(row.Observacion || row.observacion),
-    answers: parseAnswers(row.respuestas || row.RespuestasJSON),
-    questionDetails: Array.isArray(row.questionDetails)
-      ? row.questionDetails as RecordLike[]
-      : (() => {
-          const raw = parseObject(row.RespuestasJSON);
-          return Array.isArray(raw.__preguntas) ? raw.__preguntas as RecordLike[] : [];
-        })(),
+    answers: deviceSavedAnswers(row),
+    questionDetails: questionDetailsForDevice(row),
     projectProgress: normalizeProjectProgress(
       row.ProyectoProgresoJSON || row.projectProgress,
     ),

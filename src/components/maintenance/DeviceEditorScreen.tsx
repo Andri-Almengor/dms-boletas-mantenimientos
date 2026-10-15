@@ -10,6 +10,10 @@ import {
   MaintenanceEvidenceDraftSection,
 } from '@/components/maintenance/MaintenanceEvidenceDraftSection';
 import { ProjectProgressEditor } from '@/components/maintenance/ProjectProgressEditor';
+import {
+  listMaintenanceEvidenceDrafts,
+  saveMaintenanceEvidenceDrafts,
+} from '@/db/localFileRepository';
 import { useAuth } from '@/auth/AuthProvider';
 import {
   deleteLocalDevice,
@@ -60,7 +64,7 @@ import {
   createEvidencePayload,
   projectEvidenceTargets,
 } from '@/features/maintenance/maintenanceEvidence';
-import { removeLocalEvidenceFile } from '@/services/maintenanceEvidenceStorage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { createLocalId } from '@/utils/localId';
 import { formatMacAddressInput } from '@/utils/macAddress';
 import { useSync } from '@/sync/SyncProvider';
@@ -201,10 +205,10 @@ export function DeviceEditorScreen({
   const [notice, setNotice] = useState('');
   const [draftEvidence, setDraftEvidence] = useState<DraftMaintenanceEvidence[]>([]);
   const draftEvidenceRef = useRef<DraftMaintenanceEvidence[]>([]);
+  const draftWritesRef = useRef<Promise<void>>(Promise.resolve());
   const draftDeviceIdRef = useRef(
     mode === 'create' ? createLocalId('dispositivo') : deviceId,
   );
-  const savedDraftRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState<EquipmentLocationDraft | null>(null);
@@ -283,6 +287,13 @@ export function DeviceEditorScreen({
           dataScope,
           'maintenanceConfig',
         );
+        // Ambas fuentes se leen una vez al abrir el editor, en secuencia.
+        // Esto mantiene el acceso offline y evita N+1 o lecturas por componente.
+        const localQuestionRows = await listResourceItems(
+          db,
+          dataScope,
+          'maintenanceQuestion',
+        );
 
         const fallbackLocation = locationId
           && !clientLocationRows.some((row) => (
@@ -330,9 +341,14 @@ export function DeviceEditorScreen({
         ));
 
         const config = maintenanceConfig[0] || {};
-        const rawQuestions = Array.isArray(config.questions)
+        const configuredQuestions = Array.isArray(config.questions)
           ? config.questions as RecordLike[]
           : [];
+        // Reutiliza el recurso estático existente cuando maintenance.config
+        // no incluye preguntas (p. ej. catálogo descargado con permisos limitados).
+        const rawQuestions = configuredQuestions.length
+          ? configuredQuestions
+          : localQuestionRows;
         const questionRows = rawQuestions.map(normalizeMaintenanceQuestion);
 
         let nextForm: DeviceEditorForm;
@@ -402,6 +418,28 @@ export function DeviceEditorScreen({
         }
 
         if (!active) return;
+        // La cámara puede recrear la Activity de Android. Recuperar archivos
+        // pendientes antes de mostrar el formulario; no borrarlos al desmontar.
+        if (mode === 'create') {
+          const saved = await listMaintenanceEvidenceDrafts(
+            db, dataScope, maintenanceId,
+          );
+          const available: DraftMaintenanceEvidence[] = [];
+          for (const row of saved) {
+            const info = await FileSystem.getInfoAsync(row.localUri).catch(() => null);
+            if (info?.exists && row.asset && typeof row.asset === 'object') {
+              available.push(row as DraftMaintenanceEvidence);
+            }
+          }
+          if (!active) return;
+          draftEvidenceRef.current = available;
+          setDraftEvidence(available);
+          if (saved.length !== available.length) {
+            setNotice('Algunas evidencias del borrador no están disponibles en el almacenamiento local.');
+          } else if (available.length) {
+            setNotice(`${available.length} evidencia(s) recuperada(s) del borrador local.`);
+          }
+        }
         setMaintenance(maintenanceRow);
         setDetailComplete(Boolean(localDetail?.detailComplete));
         setCatalogs({
@@ -440,16 +478,23 @@ export function DeviceEditorScreen({
     initialEquipmentLocationName,
   ]);
 
-  useEffect(() => {
-    draftEvidenceRef.current = draftEvidence;
-  }, [draftEvidence]);
-
-  useEffect(() => () => {
-    if (savedDraftRef.current) return;
-    for (const item of draftEvidenceRef.current) {
-      removeLocalEvidenceFile(item.localUri).catch(() => undefined);
-    }
-  }, []);
+  function persistDraftEvidence(next: DraftMaintenanceEvidence[]) {
+    // Serializa ediciones rápidas y fotos de cámara sin abrir transacciones
+    // simultáneas contra la misma conexión expo-sqlite.
+    draftEvidenceRef.current = next;
+    setDraftEvidence(next);
+    const snapshot = [...next];
+    const write = draftWritesRef.current.catch(() => undefined).then(() => (
+      saveMaintenanceEvidenceDrafts(db, dataScope, maintenanceId, snapshot)
+    ));
+    draftWritesRef.current = write;
+    return write.catch((error) => {
+      setError(error instanceof Error
+        ? `No se pudo conservar el borrador offline: ${error.message}`
+        : 'No se pudo conservar el borrador offline.');
+      throw error;
+    });
+  }
 
   const maintenanceType = first(
     maintenance || undefined,
@@ -663,6 +708,9 @@ export function DeviceEditorScreen({
     setError('');
     setNotice('');
     try {
+      // El manifiesto de fotos debe estar durable antes del guardado atómico.
+      // Si SQLite falla, no se pierden ni se ocultan los archivos del borrador.
+      await draftWritesRef.current;
       const result = await saveLocalDeviceWithEvidence(
         db,
         dataScope,
@@ -674,10 +722,10 @@ export function DeviceEditorScreen({
             && locationDraft.localId === currentForm.equipmentLocationId
           ) ? locationDraft : null,
           evidence: preparedEvidence,
+          clearEvidenceDrafts: mode === 'create',
         },
       );
 
-      savedDraftRef.current = true;
       draftEvidenceRef.current = [];
       setDraftEvidence([]);
       await refreshStatus();
@@ -702,7 +750,6 @@ export function DeviceEditorScreen({
         });
         setLocationDraft(null);
         draftDeviceIdRef.current = createLocalId('dispositivo');
-        savedDraftRef.current = false;
         setNotice('Dispositivo guardado. Puede registrar el siguiente.');
         scrollRef.current?.scrollTo({ y: 0, animated: true });
         return;
@@ -1173,7 +1220,7 @@ export function DeviceEditorScreen({
               maintenanceType={maintenanceType}
               device={editorDeviceRecord}
               items={draftEvidence}
-              onChange={setDraftEvidence}
+              onChange={persistDraftEvidence}
               disabled={readOnly || saving}
             />
           ) : (
