@@ -330,9 +330,14 @@ export function DeviceEditorScreen({
         ));
 
         const config = maintenanceConfig[0] || {};
-        const rawQuestions = Array.isArray(config.questions)
+        const configuredQuestions = Array.isArray(config.questions)
           ? config.questions as RecordLike[]
           : [];
+        // Reutiliza el recurso estático existente cuando maintenance.config
+        // no incluye preguntas (p. ej. catálogo descargado con permisos limitados).
+        const rawQuestions = configuredQuestions.length
+          ? configuredQuestions
+          : await listResourceItems(db, dataScope, 'maintenanceQuestion');
         const questionRows = rawQuestions.map(normalizeMaintenanceQuestion);
 
         let nextForm: DeviceEditorForm;
