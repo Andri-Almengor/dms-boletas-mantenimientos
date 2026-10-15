@@ -165,3 +165,24 @@ test('regresión: UI lee SQLite, actualiza al regresar y no envía notificacione
   assert.doesNotMatch(summary, /fetch\(|actionRequest\(|Google Chat|maintenance\.finalize/);
   assert.doesNotMatch(progressModule.source, /fetch\(|actionRequest\(|SELECT /);
 });
+
+test('regresión de merge: etapa 11 y etapa 12 comparten detalle sin perder accesos', async () => {
+  const detail = await readFile(
+    new URL('../src/app/maintenance/[maintenanceId].tsx', import.meta.url), 'utf8',
+  );
+  const bulk = await readFile(
+    new URL('../src/app/maintenance/[maintenanceId]/device/bulk.tsx', import.meta.url), 'utf8',
+  );
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(detail, /function openBulkDevices\(/);
+  assert.match(detail, /onPress=\{\(\) => openBulkDevices\(section\)\}/);
+  assert.match(detail, /onPress=\{\(\) => openBulkDevices\(\)\}/);
+  assert.match(detail, /function openNewDevice\(/);
+  assert.match(detail, /onPress=\{\(\) => openNewDevice\(section\)\}/);
+  assert.match(detail, /onPress=\{\(\) => openNewDevice\(\)\}/);
+  assert.match(detail, /<MaintenanceProgressSummary/);
+  assert.match(detail, /useFocusEffect/);
+  assert.match(bulk, /saveLocalDevicesBulk\(/);
+  assert.match(readme, /Etapa 11 — Paridad: alta masiva offline/);
+  assert.match(readme, /Etapa 12 — Progreso e información de evidencias offline/);
+});
