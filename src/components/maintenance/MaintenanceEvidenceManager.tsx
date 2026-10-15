@@ -125,7 +125,7 @@ export function MaintenanceEvidenceManager({
     dataScope,
     sessionToken,
   } = useAuth();
-  const { refreshStatus } = useSync();
+  const { refreshStatus, lastSuccessAt } = useSync();
 
   const [items, setItems] = useState<EvidenceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +173,7 @@ export function MaintenanceEvidenceManager({
           : 'No se pudieron leer las evidencias locales.',
       );
     });
-  }, [load]);
+  }, [load, lastSuccessAt]);
 
   const persistAssets = useCallback(async (
     assets: ImagePickerAsset[],
