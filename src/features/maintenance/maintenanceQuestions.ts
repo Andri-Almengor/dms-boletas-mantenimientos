@@ -138,7 +138,7 @@ export function questionsForDevice(
     .filter((question) => question.key && !active.some((entry) => entry.key === question.key));
 
   if (active.length || historical.length) {
-    const answers = parseAnswers(device.respuestas || device.RespuestasJSON);
+    const answers = deviceSavedAnswers(device);
     return [...active.map((question) => ({
       ...question,
       value: answers[question.key] ?? question.value ?? '',
@@ -165,7 +165,7 @@ export function questionsForDevice(
     appliesTo: 'MANTENIMIENTO',
     relatedTypeId: '',
     config: { required: true },
-    value: parseAnswers(device.respuestas || device.RespuestasJSON)[key] ?? '',
+    value: deviceSavedAnswers(device)[key] ?? '',
     activeAtSave: true,
     historical: false,
   }));
@@ -184,6 +184,17 @@ export function parseAnswers(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * No perder respuestas offline si un snapshot histórico incluye
+ * 'respuestas: {}' y mantiene el contenido real en RespuestasJSON.
+ */
+export function deviceSavedAnswers(device: RecordLike): Record<string, unknown> {
+  const direct = parseAnswers(device.respuestas);
+  return Object.keys(direct).length > 0
+    ? direct
+    : parseAnswers(device.RespuestasJSON);
 }
 
 export function updateQuestionAnswer(
