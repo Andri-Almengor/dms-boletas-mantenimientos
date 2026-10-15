@@ -394,6 +394,16 @@ El inventario de mejoras web y las próximas etapas están documentados en [Pari
 - El resumen se refresca al regresar al detalle tras cambios locales; las fechas se actualizan tras sincronización sin consultar Drive directamente.
 - Referencia y pruebas: [Etapa 12 — paridad offline](docs/stage12-progress-evidence-offline.md). Mantiene la creación masiva de la etapa 11 fusionada desde PR #7.
 
+### Etapa 13 — Proyecto offline (detalle, relaciones y checklist) ✅
+
+- El detalle de un dispositivo de PROYECTO muestra sus preguntas configuradas y respuestas, incluidos registros históricos guardados en SQLite.
+- Los componentes relacionados (lectores, magnetos y otros) aparecen en tarjetas desplegables con fabricante, modelo, serie, MAC, preguntas del tipo relacionado y contador de evidencias por destino.
+- El checklist incluye el estado Sí/No o Pendiente/Realizado y las notas pendientes; las tarjetas generales muestran el porcentaje correspondiente a cada dispositivo.
+- Al regresar del editor se actualiza el detalle desde SQLite sin depender de conectividad. Se reutilizan el catálogo local, las reglas del dominio y la sincronización existentes.
+- Se mantienen las funciones de alta masiva de etapa 11 y progreso/evidencias de etapa 12 sin cambiar firma, finalización, roles, permisos ni backend.
+
+Pruebas y límites: [Etapa 13 — Proyecto offline](docs/stage13-project-offline-parity.md).
+
 ## Política de sincronización
 
 Zona horaria operativa:
