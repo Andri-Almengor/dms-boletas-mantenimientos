@@ -65,24 +65,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon
 
       - name: Verify standalone APK, package and signature
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="android/app/build/outputs/apk/release/app-release.apk"
-          test -s "$APK"
-          test "$(stat -c '%s' "$APK")" -gt 1000000
-          unzip -Z1 "$APK" > apk-contents.txt
-          if ! grep -E -q '^assets/index[.]android[.]bundle([.]hbc)?$' apk-contents.txt; then
-            echo "::error::La APK no incluye JavaScript/Hermes y necesitaría Metro"
-            exit 1
-          fi
-          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          test -x "$BUILD_TOOLS/aapt"
-          test -x "$BUILD_TOOLS/apksigner"
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='com.solutionsdms.dmsmantenimientos'"
-          "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
-          sha256sum "$APK" | tee android-apk.sha256
-          echo "APK_SHA256=$(cut -d ' ' -f 1 android-apk.sha256)" >> "$GITHUB_ENV"
+        run: bash scripts/verify-android-apk.sh
 
       - name: Upload standalone APK artifact
         uses: actions/upload-artifact@v4
