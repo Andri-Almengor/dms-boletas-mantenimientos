@@ -149,8 +149,8 @@ test('etapa 14: políticas y etapas previas siguen activas', async () => {
   const project = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId].tsx', import.meta.url), 'utf8');
   assert.match(config, /autoSyncStartHour: 7/);
   assert.match(config, /autoSyncEndHour: 17/);
-  assert.match(config, /America\\/Costa_Rica/);
-  assert.match(policy, /trigger === 'manual' \\|\\| isAutomaticSyncWindow\\(now\\)/);
+  assert.match(config, /America\/Costa_Rica/);
+  assert.match(policy, /trigger === 'manual' \|\| isAutomaticSyncWindow\(now\)/);
   assert.match(summary, /openBulkDevices\(section\)/);
   assert.match(summary, /MaintenanceProgressSummary/);
   assert.match(project, /ProjectDeviceSections/);
