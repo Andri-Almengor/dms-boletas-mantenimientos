@@ -457,6 +457,20 @@ export default function MaintenanceDetailScreen() {
     });
   }
 
+  function openBulkDevices(location?: {
+    locationId?: string;
+  }) {
+    router.push({
+      pathname: '/maintenance/[maintenanceId]/device/bulk',
+      params: {
+        maintenanceId,
+        ...(location?.locationId
+          ? { equipmentLocationId: location.locationId }
+          : {}),
+      },
+    });
+  }
+
   async function addLocationToMaintenance(location: MaintenanceLocationOption) {
     if (!dataScope || savingLocation || !location?.id) return;
     if (maintenanceLocations.some((item) => item.id === location.id)) {
@@ -603,6 +617,21 @@ export default function MaintenanceDetailScreen() {
 
               {!readOnly && canEdit && detail.detailComplete && section.locationId ? (
                 <Pressable
+                  onPress={() => openBulkDevices(section)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Agregar lista de dispositivos en ${section.title}`}
+                  style={({ pressed }) => [
+                    styles.locationAddButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.locationAddGlyph}>☷</Text>
+                  <Text style={styles.locationAddText}>Agregar lista</Text>
+                </Pressable>
+              ) : null}
+
+              {!readOnly && canEdit && detail.detailComplete && section.locationId ? (
+                <Pressable
                   onPress={() => openNewDevice(section)}
                   accessibilityRole="button"
                   accessibilityLabel={`Agregar dispositivo en ${section.title}`}
@@ -696,6 +725,21 @@ export default function MaintenanceDetailScreen() {
                     >
                       <Text style={styles.quickIconPrimary}>⌖＋</Text>
                       <Text style={styles.quickTextPrimary}>+ Ubicación</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {detail.detailComplete ? (
+                    <Pressable
+                      onPress={() => openBulkDevices()}
+                      accessibilityRole="button"
+                      accessibilityLabel="Agregar lista de dispositivos"
+                      style={({ pressed }) => [
+                        styles.quickButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.quickIcon}>☷</Text>
+                      <Text style={styles.quickText}>+ Lista</Text>
                     </Pressable>
                   ) : null}
 
