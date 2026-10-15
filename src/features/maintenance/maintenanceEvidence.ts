@@ -89,6 +89,40 @@ export function evidenceFileExtension(
   }
 }
 
+
+/**
+ * Fecha de captura y fecha de carga son eventos distintos en modo offline.
+ * Nunca sustituir FechaCreacion por FechaActualizacion ni por la hora actual.
+ */
+export function formatCostaRicaEvidenceDate(value: unknown): string {
+  const raw = text(value);
+  if (!raw) return 'Sin fecha';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-CR', {
+    timeZone: 'America/Costa_Rica',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+export function evidenceDateLabels(evidence: RecordLike = {}, syncStatus: unknown = '') {
+  const captured = evidence.FechaCaptura || evidence.fechaCaptura || evidence.capturedAt;
+  // FechaCreacion del backend se establece al recibir el archivo en Drive.
+  const uploaded = evidence.FechaCreacion || evidence.fechaCreacion;
+  const pending = ['LOCAL_ONLY', 'PENDING', 'FAILED', 'BLOCKED', 'CONFLICT']
+    .includes(text(syncStatus).toUpperCase());
+  return {
+    capture: captured
+      ? `Capturada: ${formatCostaRicaEvidenceDate(captured)}` : '',
+    upload: uploaded
+      ? `Cargada: ${formatCostaRicaEvidenceDate(uploaded)}`
+      : pending
+        ? 'Carga pendiente de sincronización'
+        : 'Fecha de carga no disponible',
+  };
+}
+
 export function normalizeEvidenceType(value: unknown) {
   return text(value).toLowerCase().includes('desp') ? 'Despues' : 'Antes';
 }
