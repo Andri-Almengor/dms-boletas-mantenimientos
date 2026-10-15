@@ -283,6 +283,13 @@ export function DeviceEditorScreen({
           dataScope,
           'maintenanceConfig',
         );
+        // Ambas fuentes se leen una vez al abrir el editor, en secuencia.
+        // Esto mantiene el acceso offline y evita N+1 o lecturas por componente.
+        const localQuestionRows = await listResourceItems(
+          db,
+          dataScope,
+          'maintenanceQuestion',
+        );
 
         const fallbackLocation = locationId
           && !clientLocationRows.some((row) => (
@@ -337,7 +344,7 @@ export function DeviceEditorScreen({
         // no incluye preguntas (p. ej. catálogo descargado con permisos limitados).
         const rawQuestions = configuredQuestions.length
           ? configuredQuestions
-          : await listResourceItems(db, dataScope, 'maintenanceQuestion');
+          : localQuestionRows;
         const questionRows = rawQuestions.map(normalizeMaintenanceQuestion);
 
         let nextForm: DeviceEditorForm;
