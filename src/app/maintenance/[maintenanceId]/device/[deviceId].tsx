@@ -229,6 +229,7 @@ export default function DeviceDetailScreen() {
         ) : null}
 
         <MaintenanceEvidenceManager
+          onChanged={load}
           maintenanceId={maintenanceId}
           deviceId={deviceId}
           device={device}
