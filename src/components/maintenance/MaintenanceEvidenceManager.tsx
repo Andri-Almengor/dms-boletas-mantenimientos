@@ -56,6 +56,7 @@ type Props = {
   device: RecordLike;
   maintenanceType: unknown;
   readOnly?: boolean;
+  onChanged?: () => void | Promise<void>;
 };
 
 type LocalMeta = {
@@ -119,6 +120,7 @@ export function MaintenanceEvidenceManager({
   device,
   maintenanceType,
   readOnly = false,
+  onChanged,
 }: Props) {
   const db = useSQLiteContext();
   const {
@@ -253,6 +255,9 @@ export function MaintenanceEvidenceManager({
 
     await load();
     await refreshStatus();
+    if (saved > 0) {
+      await Promise.resolve(onChanged?.()).catch(() => undefined);
+    }
 
     if (failures.length) {
       setError(
@@ -272,6 +277,7 @@ export function MaintenanceEvidenceManager({
     projectMode,
     readOnly,
     refreshStatus,
+    onChanged,
     targets,
   ]);
 
@@ -321,6 +327,7 @@ export function MaintenanceEvidenceManager({
       setEditing(null);
       await load();
       await refreshStatus();
+      await Promise.resolve(onChanged?.()).catch(() => undefined);
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -365,6 +372,7 @@ export function MaintenanceEvidenceManager({
               }
               await load();
               await refreshStatus();
+              await Promise.resolve(onChanged?.()).catch(() => undefined);
             }).catch((deleteError) => {
               setError(
                 deleteError instanceof Error
