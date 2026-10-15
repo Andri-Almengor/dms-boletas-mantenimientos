@@ -10,6 +10,7 @@ import {
 } from '@/db/evidenceRepository';
 import {
   createEvidencePayload,
+  evidenceDateLabels,
   evidenceMediaKind,
   normalizeEvidenceType,
   projectEvidenceTargetPatch,
@@ -124,7 +125,7 @@ export function MaintenanceEvidenceManager({
     dataScope,
     sessionToken,
   } = useAuth();
-  const { refreshStatus } = useSync();
+  const { refreshStatus, lastSuccessAt } = useSync();
 
   const [items, setItems] = useState<EvidenceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +173,7 @@ export function MaintenanceEvidenceManager({
           : 'No se pudieron leer las evidencias locales.',
       );
     });
-  }, [load]);
+  }, [load, lastSuccessAt]);
 
   const persistAssets = useCallback(async (
     assets: ImagePickerAsset[],
@@ -471,6 +472,7 @@ export function MaintenanceEvidenceManager({
             const uri = text(meta.localUri);
             const mediaType = evidenceMediaKind(item);
             const busy = busyId === evidenceId;
+            const dates = evidenceDateLabels(item, meta.syncStatus);
 
             return (
               <View key={evidenceId} style={styles.card}>
@@ -518,6 +520,15 @@ export function MaintenanceEvidenceManager({
                   <Text style={styles.fileName} numberOfLines={1}>
                     {evidenceTitle(item)}
                   </Text>
+
+                  <Text style={styles.dateText}>
+                    {dates.upload}
+                  </Text>
+                  {dates.capture ? (
+                    <Text style={styles.dateText}>
+                      {dates.capture}
+                    </Text>
+                  ) : null}
 
                   <Text style={styles.note} numberOfLines={2}>
                     {text(item.Nota || item.nota) || 'Sin nota'}
@@ -707,6 +718,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   countText: { color: colors.primary, fontWeight: '900' },
+  dateText: { color: colors.muted, fontSize: 11, lineHeight: 16 },
   errorBox: {
     padding: spacing.sm,
     borderRadius: radius.sm,
