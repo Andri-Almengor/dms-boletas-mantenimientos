@@ -1,7 +1,7 @@
 import { OptionItem, OptionSheet } from '@/components/forms/OptionSheet';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -32,29 +32,67 @@ export function MaintenanceEvidencePickerControls({
   onAssets,
   onError,
 }: Props) {
+  // Mantener callbacks actuales sin volver a consumir getPendingResultAsync
+  // cuando cambia una nota, destino o estado React del formulario.
+  const assetsRef = useRef(onAssets);
+  const errorRef = useRef(onError);
+  assetsRef.current = onAssets;
+  errorRef.current = onError;
+  const consumedUrisRef = useRef(new Set<string>());
+  const launchInProgressRef = useRef(false);
+  const [processing, setProcessing] = useState(false);
+  const pickerDisabled = disabled || processing;
+
+  const consumeAssets = useCallback(async (assets: ImagePicker.ImagePickerAsset[]) => {
+    const unique = assets.filter((asset) => {
+      const uri = String(asset.uri || '').trim();
+      if (!uri || consumedUrisRef.current.has(uri)) return false;
+      consumedUrisRef.current.add(uri);
+      return true;
+    });
+    if (!unique.length) return;
+    await assetsRef.current(unique);
+  }, []);
+
   useEffect(() => {
     if (disabled) return;
     let active = true;
 
     ImagePicker.getPendingResultAsync()
-      .then((result) => {
-        if (
-          !active
-          || !result
-          || !('canceled' in result)
-          || result.canceled
-          || !Array.isArray(result.assets)
-        ) {
-          return;
-        }
-        return onAssets(result.assets);
+      .then(async (result) => {
+        if (!active || !result || !('canceled' in result)
+          || result.canceled || !Array.isArray(result.assets)) return;
+        await consumeAssets(result.assets);
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (active) errorRef.current(
+          error instanceof Error ? error.message : 'No se pudo recuperar la captura pendiente.',
+        );
+      });
 
-    return () => {
-      active = false;
-    };
-  }, [disabled, onAssets]);
+    return () => { active = false; };
+  }, [disabled, consumeAssets]);
+
+  async function launch(
+    permission: () => Promise<boolean>,
+    picker: () => Promise<ImagePicker.ImagePickerResult>,
+  ) {
+    if (disabled || launchInProgressRef.current) return;
+    launchInProgressRef.current = true;
+    setProcessing(true);
+    try {
+      if (!await permission()) return;
+      errorRef.current('');
+      const result = await picker();
+      if (!result.canceled) await consumeAssets(result.assets);
+    } catch (error) {
+      errorRef.current(error instanceof Error
+        ? error.message : 'No se pudo guardar la evidencia tomada.');
+    } finally {
+      launchInProgressRef.current = false;
+      setProcessing(false);
+    }
+  }
 
   async function requireCameraPermission() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -75,52 +113,40 @@ export function MaintenanceEvidencePickerControls({
   }
 
   async function takePhoto() {
-    if (disabled || !await requireCameraPermission()) return;
-    onError('');
-    const result = await ImagePicker.launchCameraAsync({
+    await launch(requireCameraPermission, () => ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
       cameraType: ImagePicker.CameraType.back,
       allowsEditing: true,
       quality: 0.9,
-    });
-    if (!result.canceled) await onAssets(result.assets);
+    }));
   }
 
   async function recordVideo() {
-    if (disabled || !await requireCameraPermission()) return;
-    onError('');
-    const result = await ImagePicker.launchCameraAsync({
+    await launch(requireCameraPermission, () => ImagePicker.launchCameraAsync({
       mediaTypes: ['videos'],
       cameraType: ImagePicker.CameraType.back,
       allowsEditing: false,
       videoMaxDuration: 90,
       quality: 1,
-    });
-    if (!result.canceled) await onAssets(result.assets);
+    }));
   }
 
   async function pickEditablePhoto() {
-    if (disabled || !await requireLibraryPermission()) return;
-    onError('');
-    const result = await ImagePicker.launchImageLibraryAsync({
+    await launch(requireLibraryPermission, () => ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
       quality: 0.9,
-    });
-    if (!result.canceled) await onAssets(result.assets);
+    }));
   }
 
   async function pickMultiple() {
-    if (disabled || !await requireLibraryPermission()) return;
-    onError('');
-    const result = await ImagePicker.launchImageLibraryAsync({
+    await launch(requireLibraryPermission, () => ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       selectionLimit: 30,
       orderedSelection: true,
       quality: 1,
-    });
-    if (!result.canceled) await onAssets(result.assets);
+    }));
   }
 
   return (
@@ -130,12 +156,12 @@ export function MaintenanceEvidencePickerControls({
           {['Antes', 'Despues'].map((type) => (
             <Pressable
               key={type}
-              disabled={disabled}
+              disabled={pickerDisabled}
               onPress={() => onEvidenceTypeChange(type)}
               style={[
                 styles.typeChoice,
                 evidenceType === type && styles.typeChoiceSelected,
-                disabled && styles.disabled,
+                pickerDisabled && styles.disabled,
               ]}
             >
               <Text style={[
@@ -152,7 +178,7 @@ export function MaintenanceEvidencePickerControls({
           label="Corresponde a"
           value={targetValue}
           options={targetOptions}
-          disabled={disabled}
+          disabled={pickerDisabled}
           onChange={(value) => onTargetChange?.(String(value))}
         />
       )}
@@ -162,36 +188,36 @@ export function MaintenanceEvidencePickerControls({
           label="Tomar foto"
           icon="▣"
           primary
-          disabled={disabled}
+          disabled={pickerDisabled}
           onPress={takePhoto}
         />
         <PickerButton
           label="Foto galería"
           icon="▧"
-          disabled={disabled}
+          disabled={pickerDisabled}
           onPress={pickEditablePhoto}
         />
       </View>
 
       <View style={styles.secondaryPickerRow}>
         <Pressable
-          disabled={disabled}
+          disabled={pickerDisabled}
           onPress={pickMultiple}
           style={({ pressed }) => [
             styles.secondaryAction,
-            disabled && styles.disabled,
-            pressed && !disabled && styles.pressed,
+            pickerDisabled && styles.disabled,
+            pressed && !pickerDisabled && styles.pressed,
           ]}
         >
           <Text style={styles.secondaryActionText}>▦ Seleccionar varios</Text>
         </Pressable>
         <Pressable
-          disabled={disabled}
+          disabled={pickerDisabled}
           onPress={recordVideo}
           style={({ pressed }) => [
             styles.secondaryAction,
-            disabled && styles.disabled,
-            pressed && !disabled && styles.pressed,
+            pickerDisabled && styles.disabled,
+            pressed && !pickerDisabled && styles.pressed,
           ]}
         >
           <Text style={styles.secondaryActionText}>▶ Grabar video</Text>
