@@ -75,19 +75,20 @@ export function normalizeMaintenanceQuestion(
  * o aún no se pudo sincronizar.
  */
 export function questionDetailsForDevice(device: RecordLike): RecordLike[] {
-  if (Array.isArray(device.questionDetails)) {
+  if (Array.isArray(device.questionDetails) && device.questionDetails.length) {
     return device.questionDetails as RecordLike[];
   }
-  if (Array.isArray(device.respuestasDetalle)) {
+  if (Array.isArray(device.respuestasDetalle) && device.respuestasDetalle.length) {
     return device.respuestasDetalle as RecordLike[];
   }
-  const direct = device.respuestas;
-  const answers = direct && typeof direct === 'object' && !Array.isArray(direct)
-    ? direct as RecordLike
-    : parseStoredObject(device.RespuestasJSON || direct);
-  return Array.isArray(answers.__preguntas)
-    ? answers.__preguntas as RecordLike[]
-    : [];
+  // No descartar __preguntas de RespuestasJSON si el campo 'respuestas' es {}.
+  for (const source of [device.respuestas, device.RespuestasJSON]) {
+    const answers = parseStoredObject(source);
+    if (Array.isArray(answers.__preguntas) && answers.__preguntas.length) {
+      return answers.__preguntas as RecordLike[];
+    }
+  }
+  return [];
 }
 
 function parseStoredObject(value: unknown): RecordLike {
