@@ -144,10 +144,13 @@ test('etapa 14: formulario no elimina fotos al desmontarse ni abandona borradore
 
 test('etapa 14: políticas y etapas previas siguen activas', async () => {
   const policy = await readFile(new URL('../src/sync/syncPolicy.ts', import.meta.url), 'utf8');
+  const config = await readFile(new URL('../src/config/appConfig.ts', import.meta.url), 'utf8');
   const summary = await readFile(new URL('../src/app/maintenance/[maintenanceId].tsx', import.meta.url), 'utf8');
   const project = await readFile(new URL('../src/app/maintenance/[maintenanceId]/device/[deviceId].tsx', import.meta.url), 'utf8');
-  assert.match(policy, /17/);
-  assert.match(policy, /7/);
+  assert.match(config, /autoSyncStartHour: 7/);
+  assert.match(config, /autoSyncEndHour: 17/);
+  assert.match(config, /America\\/Costa_Rica/);
+  assert.match(policy, /trigger === 'manual' \\|\\| isAutomaticSyncWindow\\(now\\)/);
   assert.match(summary, /openBulkDevices\(section\)/);
   assert.match(summary, /MaintenanceProgressSummary/);
   assert.match(project, /ProjectDeviceSections/);
