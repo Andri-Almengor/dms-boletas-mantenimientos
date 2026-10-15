@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - feat/stage-1-mobile-foundation
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'app.json'
+      - 'package.json'
+      - 'tests/**'
+      - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
 permissions:
