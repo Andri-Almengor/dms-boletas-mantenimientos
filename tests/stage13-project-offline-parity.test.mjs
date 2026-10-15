@@ -194,6 +194,12 @@ test('etapa 13: componente visual solo consulta caché y muestra relaciones/chec
   assert.match(detail, /useFocusEffect\(/);
   assert.match(detail, /<ProjectDeviceSections/);
   assert.match(detail, /<MaintenanceEvidenceManager/);
+  assert.match(detail, /onChanged=\\{load\\}/);
+  const manager = await readFile(
+    new URL('../src/components/maintenance/MaintenanceEvidenceManager.tsx', import.meta.url), 'utf8',
+  );
+  assert.match(manager, /onChanged\\?: \\(\\) => void \\| Promise<void>/);
+  assert.match(manager, /Promise\\.resolve\\(onChanged\\?\\.\\(\\)\\)/);
   assert.match(editor, /configuredQuestions\.length/);
   assert.match(editor, /'maintenanceQuestion'/);
   assert.match(domain, /questionDetailsForDevice\(row\)/);
