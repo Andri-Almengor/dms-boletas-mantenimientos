@@ -595,7 +595,12 @@ export default function MaintenanceDetailScreen() {
         keyExtractor={(item, index) => deviceId(item) || `device-${index}`}
         renderItem={({ item, section }) => (
           search.trim() || openLocations.has(section.key)
-            ? <DeviceCard item={item} onPress={() => openDevice(item)} />
+            ? <DeviceCard
+                item={item}
+                maintenanceType={maintenance.TipoMantenimiento}
+                projectChecklist={maintenance.ProyectoChecklistJSON || maintenance.projectChecklist}
+                onPress={() => openDevice(item)}
+              />
             : null
         )}
         renderSectionHeader={({ section }) => {
