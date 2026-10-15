@@ -69,6 +69,38 @@ export function normalizeMaintenanceQuestion(
   };
 }
 
+/**
+ * La web guarda el snapshot de preguntas en distintas representaciones
+ * históricas. Reutilizarlo preserva la lectura offline si el catálogo cambia
+ * o aún no se pudo sincronizar.
+ */
+export function questionDetailsForDevice(device: RecordLike): RecordLike[] {
+  if (Array.isArray(device.questionDetails)) {
+    return device.questionDetails as RecordLike[];
+  }
+  if (Array.isArray(device.respuestasDetalle)) {
+    return device.respuestasDetalle as RecordLike[];
+  }
+  const direct = device.respuestas;
+  const answers = direct && typeof direct === 'object' && !Array.isArray(direct)
+    ? direct as RecordLike
+    : parseStoredObject(device.RespuestasJSON || direct);
+  return Array.isArray(answers.__preguntas)
+    ? answers.__preguntas as RecordLike[]
+    : [];
+}
+
+function parseStoredObject(value: unknown): RecordLike {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as RecordLike;
+  try {
+    const parsed: unknown = JSON.parse(String(value || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as RecordLike : {};
+  } catch {
+    return {};
+  }
+}
+
 export function questionsForDevice(
   questions: MaintenanceQuestion[],
   device: RecordLike,
@@ -100,11 +132,9 @@ export function questionsForDevice(
     })
     .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, 'es'));
 
-  const historical = Array.isArray(device.questionDetails)
-    ? (device.questionDetails as RecordLike[])
-      .map(normalizeMaintenanceQuestion)
-      .filter((question) => question.key && !active.some((entry) => entry.key === question.key))
-    : [];
+  const historical = questionDetailsForDevice(device)
+    .map(normalizeMaintenanceQuestion)
+    .filter((question) => question.key && !active.some((entry) => entry.key === question.key));
 
   if (active.length || historical.length) {
     const answers = parseAnswers(device.respuestas || device.RespuestasJSON);
