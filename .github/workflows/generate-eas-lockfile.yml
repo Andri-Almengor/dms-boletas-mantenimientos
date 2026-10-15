@@ -1,0 +1,43 @@
+name: Generate EAS dependency lockfile (temporary)
+
+on:
+  push:
+    branches:
+      - fix/eas-npm-peer-deps-lockfile-20261015
+    paths:
+      - package.json
+      - '.github/workflows/generate-eas-lockfile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    if: github.ref == 'refs/heads/fix/eas-npm-peer-deps-lockfile-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Resolve Expo SDK 57 dependencies without force or legacy peer overrides
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Reproduce EAS clean install
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Regression tests
+        run: npm test
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Commit generated lockfile on feature branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "build(eas): versionar npm lockfile validado con npm ci"
+            git push origin HEAD:fix/eas-npm-peer-deps-lockfile-20261015
+          fi
