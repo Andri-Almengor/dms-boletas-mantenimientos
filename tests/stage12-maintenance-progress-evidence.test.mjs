@@ -28,6 +28,7 @@ const evidenceModule = await loadActualModule('../src/features/maintenance/maint
   '@/features/maintenance/maintenanceProject': {
     normalizeProjectRelationValue: () => ({}),
   },
+  '@/features/maintenance/maintenanceQuestions': { deviceSavedAnswers: (row) => row.respuestas || row.RespuestasJSON || {} },
 });
 
 const build = progressModule.exports.buildLocalMaintenanceProgress;
