@@ -374,6 +374,17 @@ Además, el workflow `Android APK` genera en GitHub Actions una APK debug instal
 
 El checklist completo de dispositivo físico está en `docs/android-validation-checklist.md` e incluye SQLite, offline prolongado, cámara, galería, videos, firma, recuperación de red, límite de las 17:00, sync manual, BackgroundTask, conflictos y actualización conservando datos.
 
+### Etapa 11 — Paridad: alta masiva offline ✅
+
+- En MANTENIMIENTO y PROYECTO se pueden agregar **hasta 100 dispositivos** del mismo tipo a una ubicación específica desde el detalle o la tarjeta de ubicación.
+- Se admiten nombres separados por Tab o líneas, incluidos pegados desde Excel.
+- Cada dispositivo queda en **PENDIENTE**, con su propio ID y la misma operación de outbox `maintenance.devices.create` del editor individual.
+- El lote completo se guarda en **una transacción SQLite** y no necesita red. Los campos, preguntas y evidencias quedan por completar.
+- Se respetan permisos existentes, el modo de solo lectura y la obligación de descargar el detalle primero.
+- La sincronización conserva la política automática 07:00–17:00 y manual 24/7.
+
+El inventario de mejoras web y las próximas etapas están documentados en [Paridad web ↔ móvil](docs/web-mobile-maintenance-parity-20261015.md).
+
 ## Política de sincronización
 
 Zona horaria operativa:
