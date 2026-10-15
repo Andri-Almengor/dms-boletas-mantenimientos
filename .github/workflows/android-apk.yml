@@ -21,7 +21,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -52,16 +52,43 @@ jobs:
           CI: "1"
         run: npx expo prebuild --platform android --clean
 
-      - name: Build installable debug APK
+      # React Native no incluye el bundle JS en assembleDebug: necesita Metro.
+      # assembleRelease incluye JS/Hermes y permite probar SIN servidor de desarrollo.
+      # El prebuild de Expo usa una clave DEBUG para firmar release local;
+      # distribución/actualizaciones estables deben hacerse vía EAS preview.
+      - name: Build standalone Android APK
         working-directory: android
+        env:
+          CI: "1"
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK artifact
+      - name: Verify standalone APK, package and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          test "$(stat -c '%s' "$APK")" -gt 1000000
+          if ! unzip -Z1 "$APK" | grep -E -q '^assets/index\\.android\\.bundle(\\.hbc)?; then
+            echo "::error::La APK no incluye JavaScript/Hermes y necesitaría Metro"
+            exit 1
+          fi
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$BUILD_TOOLS/aapt"
+          test -x "$BUILD_TOOLS/apksigner"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='com.solutionsdms.dmsmantenimientos'"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
+          sha256sum "$APK" | tee android-apk.sha256
+          echo "APK_SHA256=$(cut -d ' ' -f 1 android-apk.sha256)" >> "$GITHUB_ENV"
+
+      - name: Upload standalone APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dms-mantenimientos-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: dms-mantenimientos-android-standalone
+          path: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android-apk.sha256
           if-no-files-found: error
           retention-days: 14
