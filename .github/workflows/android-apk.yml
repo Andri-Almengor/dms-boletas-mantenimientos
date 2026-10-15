@@ -71,7 +71,8 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           test "$(stat -c '%s' "$APK")" -gt 1000000
-          if ! unzip -Z1 "$APK" | grep -E -q '^assets/index\\.android\\.bundle(\\.hbc)?; then
+          unzip -Z1 "$APK" > apk-contents.txt
+          if ! grep -E -q '^assets/index[.]android[.]bundle([.]hbc)?$' apk-contents.txt; then
             echo "::error::La APK no incluye JavaScript/Hermes y necesitaría Metro"
             exit 1
           fi
