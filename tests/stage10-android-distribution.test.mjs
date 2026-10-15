@@ -11,9 +11,9 @@ const workflow = await readFile(
 );
 const config = await readFile(new URL('../src/config/appConfig.ts', import.meta.url), 'utf8');
 
-test('Etapa 10 define identidad Android estable y versionCode local', () => {
+test('Etapas 10 y 15 conservan identidad Android y elevan versionCode de nueva APK', () => {
   assert.equal(app.expo.android.package, 'com.solutionsdms.dmsmantenimientos');
-  assert.equal(app.expo.android.versionCode, 1);
+  assert.equal(app.expo.android.versionCode, 2);
   assert.equal(app.expo.slug, 'dms-boletas-mantenimientos');
 });
 
@@ -44,7 +44,7 @@ test('workflow APK vuelve a correr regresiones y TypeScript antes de compilar', 
   const tests = workflow.indexOf('npm test');
   const typecheck = workflow.indexOf('npm run typecheck');
   const prebuild = workflow.indexOf('expo prebuild');
-  const gradle = workflow.indexOf('assembleDebug');
+  const gradle = workflow.indexOf('assembleRelease');
   assert.ok(tests >= 0);
   assert.ok(typecheck > tests);
   assert.ok(prebuild > typecheck);
