@@ -283,7 +283,7 @@ async function saveLocalDeviceTx(
   scopeKey: string,
   maintenanceId: string,
   patch: DeviceRecord,
-  options: SaveDeviceOptions = {},
+  options: SaveDeviceOptions & { deferDetailCounts?: boolean } = {},
 ) {
   let deviceId = idOf(patch);
   let operationId = '';
@@ -397,7 +397,9 @@ async function saveLocalDeviceTx(
       || '',
   });
   operationId = queued.operationId;
-  await refreshDetailCountsTx(db, scopeKey, maintenanceId);
+  if (!options.deferDetailCounts) {
+    await refreshDetailCountsTx(db, scopeKey, maintenanceId);
+  }
 
   return { deviceId, operationId };
 }
@@ -420,6 +422,58 @@ export async function saveLocalDevice(
     );
   }));
   return result;
+}
+
+/**
+ * Alta masiva offline: la misma persistencia individual, outbox y dependencias,
+ * pero una única transacción SQLite para evitar lotes parcialmente guardados.
+ * Los IDs se generan ANTES del retry de SQLITE_BUSY y quedan estables.
+ */
+export async function saveLocalDevicesBulk(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  patches: DeviceRecord[],
+) {
+  if (!scopeKey || !maintenanceId) {
+    throw new Error('El mantenimiento local y el alcance de usuario son obligatorios.');
+  }
+  if (!patches.length || patches.length > 100) {
+    throw new Error('La lista debe contener entre 1 y 100 dispositivos.');
+  }
+  const prepared = patches.map((patch) => {
+    const id = idOf(patch) || createLocalId('dispositivo');
+    return { ...patch, EvidenciaMantenimientoID: id, deviceId: id };
+  });
+  const ids = prepared.map(idOf);
+  if (new Set(ids).size !== ids.length) {
+    throw new Error('Cada dispositivo necesita un identificador único.');
+  }
+
+  await withDatabaseLockRetry(() => db.withExclusiveTransactionAsync(async (transaction) => {
+    const state = await transaction.getFirstAsync<{ complete: number }>(
+      `SELECT complete FROM local_maintenance_detail_state
+       WHERE scope_key = ? AND maintenance_id = ?`,
+      scopeKey,
+      maintenanceId,
+    );
+    if (state?.complete !== 1) {
+      throw new Error('Descargue el detalle completo antes de agregar dispositivos.');
+    }
+
+    for (const patch of prepared) {
+      await saveLocalDeviceTx(
+        transaction,
+        scopeKey,
+        maintenanceId,
+        patch,
+        { deferDetailCounts: true },
+      );
+    }
+    await refreshDetailCountsTx(transaction, scopeKey, maintenanceId);
+  }));
+
+  return { deviceIds: ids, createdCount: ids.length };
 }
 
 export async function saveLocalDeviceWithEvidence(
