@@ -18,7 +18,7 @@ import {
 } from '@/features/maintenance/maintenanceProject';
 import {
   MaintenanceQuestion,
-  parseAnswers,
+  deviceSavedAnswers,
   questionDetailsForDevice,
   questionsForDevice,
 } from '@/features/maintenance/maintenanceQuestions';
@@ -299,7 +299,7 @@ export function mapDeviceToEditor(
     inUse: text(row.EnUso || row.enUso || base.inUse),
     status: text(row.Estado || row.estado || 'Pendiente'),
     observation: text(row.Observacion || row.observacion),
-    answers: parseAnswers(row.respuestas || row.RespuestasJSON),
+    answers: deviceSavedAnswers(row),
     questionDetails: questionDetailsForDevice(row),
     projectProgress: normalizeProjectProgress(
       row.ProyectoProgresoJSON || row.projectProgress,
