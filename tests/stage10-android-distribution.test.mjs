@@ -35,9 +35,9 @@ test('scripts de distribución no requieren instalar eas-cli en dependencies', (
 test('CI nativo genera proyecto Android y un APK instalable como artefacto', () => {
   assert.match(workflow, /java-version: "17"/);
   assert.match(workflow, /expo prebuild --platform android --clean/);
-  assert.match(workflow, /\.\/gradlew assembleDebug --no-daemon/);
+  assert.match(workflow, /\.\/gradlew assembleRelease --no-daemon/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
-  assert.match(workflow, /app-debug\.apk/);
+  assert.match(workflow, /app-release\.apk/);
 });
 
 test('workflow APK vuelve a correr regresiones y TypeScript antes de compilar', () => {
