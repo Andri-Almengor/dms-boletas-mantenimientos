@@ -19,6 +19,7 @@ import {
 import {
   MaintenanceQuestion,
   parseAnswers,
+  questionDetailsForDevice,
   questionsForDevice,
 } from '@/features/maintenance/maintenanceQuestions';
 import {
@@ -299,12 +300,7 @@ export function mapDeviceToEditor(
     status: text(row.Estado || row.estado || 'Pendiente'),
     observation: text(row.Observacion || row.observacion),
     answers: parseAnswers(row.respuestas || row.RespuestasJSON),
-    questionDetails: Array.isArray(row.questionDetails)
-      ? row.questionDetails as RecordLike[]
-      : (() => {
-          const raw = parseObject(row.RespuestasJSON);
-          return Array.isArray(raw.__preguntas) ? raw.__preguntas as RecordLike[] : [];
-        })(),
+    questionDetails: questionDetailsForDevice(row),
     projectProgress: normalizeProjectProgress(
       row.ProyectoProgresoJSON || row.projectProgress,
     ),
