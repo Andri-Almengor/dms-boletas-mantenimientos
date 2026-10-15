@@ -374,6 +374,15 @@ Además, el workflow `Android APK` genera en GitHub Actions una APK debug instal
 
 El checklist completo de dispositivo físico está en `docs/android-validation-checklist.md` e incluye SQLite, offline prolongado, cámara, galería, videos, firma, recuperación de red, límite de las 17:00, sync manual, BackgroundTask, conflictos y actualización conservando datos.
 
+### Etapa 12 — Progreso e información de evidencias offline ✅
+
+- El detalle muestra **esperados/registrados/evidencias** y cantidades por tipo (histórico o dinámico), calculadas desde SQLite.
+- Para MANTENIMIENTO con inventario planificado completo distingue: **solo ANTES, ANTES y DESPUÉS, solo DESPUÉS, sin fotos y sin clasificación**. Múltiples fotos ANTES del mismo equipo no multiplican pendientes.
+- PROYECTO muestra avance de inventario y presencia de evidencias sin aplicar fases ANTES/DESPUÉS ni alterar su checklist.
+- Cada tarjeta de evidencia indica **Cargada** con fecha real de servidor (`FechaCreacion`) y **Capturada** con fecha original (`FechaCaptura`), en zona horaria de Costa Rica. Una evidencia aún local muestra carga pendiente.
+- El resumen se refresca al regresar al detalle tras cambios locales; las fechas se actualizan tras sincronización sin consultar Drive directamente.
+- Referencia y pruebas: [Etapa 12 — paridad offline](docs/stage12-progress-evidence-offline.md). La etapa 11 de altas masivas está en revisión independiente en PR #7.
+
 ## Política de sincronización
 
 Zona horaria operativa:
