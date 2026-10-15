@@ -1,4 +1,5 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
+import { deviceSavedAnswers } from '@/features/maintenance/maintenanceQuestions';
 import {
   normalizeProjectRelationValue,
 } from '@/features/maintenance/maintenanceProject';
@@ -166,21 +167,6 @@ export function validatePickedEvidenceAsset(asset: ImagePickerAsset) {
   };
 }
 
-function parseAnswers(device: RecordLike = {}) {
-  const direct = device.respuestas;
-  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
-    return direct as Record<string, unknown>;
-  }
-  try {
-    const parsed = JSON.parse(text(device.RespuestasJSON) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function questionLabelMap(device: RecordLike, answers: Record<string, unknown>) {
   const details = Array.isArray(device.questionDetails)
     ? device.questionDetails as RecordLike[]
@@ -200,7 +186,7 @@ function questionLabelMap(device: RecordLike, answers: Record<string, unknown>) 
 export function projectEvidenceTargets(
   device: RecordLike = {},
 ): ProjectEvidenceTarget[] {
-  const answers = parseAnswers(device);
+  const answers = deviceSavedAnswers(device);
   const labels = questionLabelMap(device, answers);
   const deviceName = text(
     device.nombre
