@@ -385,6 +385,15 @@ El checklist completo de dispositivo físico está en `docs/android-validation-c
 
 El inventario de mejoras web y las próximas etapas están documentados en [Paridad web ↔ móvil](docs/web-mobile-maintenance-parity-20261015.md).
 
+### Etapa 12 — Progreso e información de evidencias offline ✅
+
+- El detalle muestra **esperados/registrados/evidencias** y cantidades por tipo (histórico o dinámico), calculadas desde SQLite.
+- Para MANTENIMIENTO con inventario planificado completo distingue: **solo ANTES, ANTES y DESPUÉS, solo DESPUÉS, sin fotos y sin clasificación**. Múltiples fotos ANTES del mismo equipo no multiplican pendientes.
+- PROYECTO muestra avance de inventario y presencia de evidencias sin aplicar fases ANTES/DESPUÉS ni alterar su checklist.
+- Cada tarjeta de evidencia indica **Cargada** con fecha real de servidor (`FechaCreacion`) y **Capturada** con fecha original (`FechaCaptura`), en zona horaria de Costa Rica. Una evidencia aún local muestra carga pendiente.
+- El resumen se refresca al regresar al detalle tras cambios locales; las fechas se actualizan tras sincronización sin consultar Drive directamente.
+- Referencia y pruebas: [Etapa 12 — paridad offline](docs/stage12-progress-evidence-offline.md). Mantiene la creación masiva de la etapa 11 fusionada desde PR #7.
+
 ## Política de sincronización
 
 Zona horaria operativa:
