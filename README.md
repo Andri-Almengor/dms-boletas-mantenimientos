@@ -404,6 +404,16 @@ El inventario de mejoras web y las próximas etapas están documentados en [Pari
 
 Pruebas y límites: [Etapa 13 — Proyecto offline](docs/stage13-project-offline-parity.md).
 
+### Etapa 14 — Recuperación de evidencias al volver de la cámara ✅
+
+- Los borradores de evidencias del formulario de **nuevo dispositivo** se mantienen en SQLite por usuario/mantenimiento y se restauran después de recrear la pantalla, cerrar y reabrir Android o trabajar sin conexión.
+- Se elimina el borrado automático de fotos no guardadas al desmontar la pantalla. El manifiesto se consume de manera **atómica** cuando el dispositivo y su outbox quedan guardados.
+- Los archivos de borrador activos quedan protegidos frente a housekeeping; al eliminar una foto se actualiza primero SQLite y después se limpia el archivo físico.
+- La recuperación `getPendingResultAsync` de Expo Camera/ImagePicker evita capturas duplicadas y mantiene un único procesamiento por selección.
+- Sin migración, endpoints adicionales, permisos ni alteraciones del horario de sincronización.
+
+Pruebas y alcance: [Etapa 14 — recuperación offline](docs/stage14-camera-offline-recovery.md).
+
 ## Política de sincronización
 
 Zona horaria operativa:
