@@ -42,6 +42,7 @@ export type DraftMaintenanceEvidence = {
   note: string;
   capturedAt: string;
   targetValue: string;
+  sourceUri?: string;
 };
 
 type Props = {
@@ -81,9 +82,13 @@ export function MaintenanceEvidenceDraftSection({
     if (!assets.length || disabled) return;
     setError('');
     const next = [...items];
+    const seen = new Set(next.map((item) => item.sourceUri).filter(Boolean));
     const failures: string[] = [];
 
     for (const asset of assets) {
+      // Android puede entregar el mismo resultado al volver de cámara y
+      // al recuperar una Activity; no agregar dos veces al borrador.
+      if (seen.has(asset.uri)) continue;
       const evidenceId = createLocalId('evidencia');
       try {
         const stored = await persistPickedEvidenceAsset({
@@ -99,6 +104,7 @@ export function MaintenanceEvidenceDraftSection({
         };
         next.push({
           evidenceId,
+          sourceUri: asset.uri,
           localFileId: stored.localFileId,
           localUri: stored.localUri,
           asset: persistedAsset,
@@ -118,6 +124,7 @@ export function MaintenanceEvidenceDraftSection({
               )
             : 'DISPOSITIVO',
         });
+        seen.add(asset.uri);
       } catch (assetError) {
         failures.push(
           assetError instanceof Error
@@ -146,8 +153,15 @@ export function MaintenanceEvidenceDraftSection({
   ]);
 
   async function remove(item: DraftMaintenanceEvidence) {
-    await removeLocalEvidenceFile(item.localUri);
-    await onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
+    // Primero retirar del manifiesto durable. Si el SO interrumpe después,
+    // la limpieza segura de huérfanos puede eliminar el archivo más tarde.
+    try {
+      await onChange(items.filter((candidate) => candidate.evidenceId !== item.evidenceId));
+      await removeLocalEvidenceFile(item.localUri);
+    } catch (removeError) {
+      setError(removeError instanceof Error
+        ? removeError.message : 'No se pudo eliminar la evidencia del borrador.');
+    }
   }
 
   function patch(
