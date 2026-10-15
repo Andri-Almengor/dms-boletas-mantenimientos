@@ -114,11 +114,9 @@ jobs:
           profile: pixel_5
           disable-animations: true
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
-          script: |
-            set -euo pipefail
-            APK="$(find apk-artifact -type f -name app-release.apk -print -quit)"
-            test -n "$APK"
-            bash scripts/android-emulator-smoke.sh "$APK"
+          # android-emulator-runner ejecuta "script" mediante /bin/sh.
+          # El propio archivo ejecutado con bash ya habilita pipefail.
+          script: bash scripts/android-emulator-smoke.sh "$(find apk-artifact -type f -name app-release.apk -print -quit)"
 
       - name: Upload emulator evidence
         if: always()
