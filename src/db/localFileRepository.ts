@@ -1,5 +1,88 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createLocalId } from '@/utils/localId';
+import { withDatabaseLockRetry } from '@/db/database';
+import {
+  listResourceItemsByParents,
+  upsertResourceItemTx,
+} from '@/db/resourceRepository';
+
+export type MaintenanceEvidenceDraftRecord = {
+  evidenceId: string;
+  localFileId: string;
+  localUri: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  [key: string]: unknown;
+};
+
+const EVIDENCE_DRAFT_RESOURCE = 'maintenanceEvidenceDraft';
+
+/**
+ * Borradores: reutilizan local_resource_items y local_files, ambos por scope.
+ * No son evidencias enviables ni crean operaciones en la outbox.
+ */
+export async function saveMaintenanceEvidenceDrafts(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+  items: MaintenanceEvidenceDraftRecord[],
+) {
+  await withDatabaseLockRetry(() => db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `DELETE FROM local_resource_items
+       WHERE scope_key = ? AND resource = ? AND parent_id = ?`,
+      scopeKey, EVIDENCE_DRAFT_RESOURCE, maintenanceId,
+    );
+    for (const item of items) {
+      if (!item.evidenceId || !item.localUri || !item.localFileId) {
+        throw new Error('El borrador de evidencia no tiene un archivo local válido.');
+      }
+      await registerLocalFile(tx, {
+        fileId: item.localFileId,
+        scopeKey,
+        ownerType: EVIDENCE_DRAFT_RESOURCE,
+        ownerId: item.evidenceId,
+        localUri: item.localUri,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        fileSize: item.size,
+      });
+      await upsertResourceItemTx(tx, scopeKey, EVIDENCE_DRAFT_RESOURCE, {
+        ...item, id: item.evidenceId, maintenanceId,
+      });
+    }
+  }));
+}
+
+export async function listMaintenanceEvidenceDrafts(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+): Promise<MaintenanceEvidenceDraftRecord[]> {
+  const rows = await listResourceItemsByParents(
+    db, scopeKey, EVIDENCE_DRAFT_RESOURCE, [maintenanceId],
+  );
+  return rows.filter((item) =>
+    String(item.evidenceId || '').trim()
+    && String(item.localUri || '').trim()
+    && String(item.localFileId || '').trim()
+  ) as MaintenanceEvidenceDraftRecord[];
+}
+
+export async function clearMaintenanceEvidenceDrafts(
+  db: SQLiteDatabase,
+  scopeKey: string,
+  maintenanceId: string,
+) {
+  // El guardado final ya asociaba local_file_id con local_maintenance_evidence.
+  // Borrar solo el manifiesto, nunca los archivos todavía pendientes de subir.
+  await withDatabaseLockRetry(() => db.runAsync(
+    `DELETE FROM local_resource_items
+     WHERE scope_key = ? AND resource = ? AND parent_id = ?`,
+    scopeKey, EVIDENCE_DRAFT_RESOURCE, maintenanceId,
+  ));
+}
 
 export type LocalFileInput = {
   fileId?: string;
@@ -134,6 +217,14 @@ export async function listOrphanedLocalFiles(
          WHERE e.scope_key = f.scope_key
            AND e.local_file_id = f.file_id
            AND e.tombstone = 0
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM local_resource_items d
+         WHERE d.scope_key = f.scope_key
+           AND d.resource = 'maintenanceEvidenceDraft'
+           AND d.entity_id = f.owner_id
+           AND f.owner_type = 'maintenanceEvidenceDraft'
        )
        AND NOT EXISTS (
          SELECT 1
