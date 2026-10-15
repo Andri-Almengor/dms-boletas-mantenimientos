@@ -51,7 +51,7 @@ test('etapa 15: compilación autónoma entrega bundle, firma, paquete y checksum
   assert.match(workflow, /app-release\.apk/);
   assert.match(workflow, /if-no-files-found: error/);
   assert.match(verifier, /assets\/index\[\.\]android\[\.\]bundle/);
-  assert.match(verifier, /apksigner.*verify --verbose/);
+  assert.match(verifier, /apksigner[^\n]*verify --verbose/);
   assert.match(verifier, /aapt.*dump badging/);
   assert.match(verifier, /sha256sum/);
   assert.match(verifier, /versionCode/);
