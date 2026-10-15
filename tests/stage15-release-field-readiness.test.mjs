@@ -64,6 +64,13 @@ test('etapa 15: smoke instala release en emulador, arranca offline y adjunta evi
   assert.match(workflow, /needs: apk/);
   assert.match(workflow, /actions\/download-artifact@v4/);
   assert.match(workflow, /scripts\/android-emulator-smoke\.sh/);
+  // El runner de emulador ejecuta su parámetro "script" con /bin/sh, no bash:
+  // no enviarle "set -euo pipefail" directamente, ya lo ejecuta el .sh con bash.
+  const runnerScript = workflow.match(/script: ([^\n]+)/)?.[1] || '';
+  assert.match(runnerScript, /^bash scripts\/android-emulator-smoke\.sh /);
+  assert.match(runnerScript, /find apk-artifact/);
+  assert.doesNotMatch(runnerScript, /set -euo pipefail/);
+  assert.match(smoke, /^#!\/usr\/bin\/env bash\nset -euo pipefail/m);
   assert.match(workflow, /android-smoke\//);
   assert.match(smoke, /adb install -r/);
   assert.match(smoke, /adb shell monkey -p/);
