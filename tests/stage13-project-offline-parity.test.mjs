@@ -34,6 +34,7 @@ const questions = await loadModule('../src/features/maintenance/maintenanceQuest
 });
 const evidence = await loadModule('../src/features/maintenance/maintenanceEvidence.ts', {
   '@/features/maintenance/maintenanceProject': project.exports,
+  '@/features/maintenance/maintenanceQuestions': questions.exports,
 });
 
 const {
@@ -123,6 +124,7 @@ test('etapa 13: conserva preguntas históricas en snapshots sin catálogo offlin
   };
   assert.deepEqual(questionDetailsForDevice(saved), snapshot);
   assert.equal(questionsForDevice([], saved, 'PROYECTO')[0].label, '¿Puerta de emergencia?');
+  assert.equal(questions.exports.deviceSavedAnswers(saved).lector_emergencia, 'Sí');
   assert.equal(questionsForDevice([], saved, 'PROYECTO')[0].historical, true);
   assert.equal(parseAnswers(saved.RespuestasJSON).lector_emergencia, 'Sí');
   const usingDetail = { ...saved, respuestasDetalle: snapshot };
