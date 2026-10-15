@@ -1,5 +1,6 @@
 import { useAuth } from '@/auth/AuthProvider';
 import { DeviceCard } from '@/components/maintenance/DeviceCard';
+import { MaintenanceProgressSummary } from '@/components/maintenance/MaintenanceProgressSummary';
 import {
   MaintenanceLocationOption,
   MaintenanceLocationPickerModal,
@@ -17,7 +18,6 @@ import {
   listResourceItemsByParents,
 } from '@/db/resourceRepository';
 import {
-  expectedDeviceTotal,
   formatMaintenanceDate,
   maintenanceClient,
   maintenanceLocation,
@@ -29,11 +29,14 @@ import {
   canEditMaintenance,
   maintenanceReadOnly,
 } from '@/features/maintenance/maintenancePermissions';
+import { buildLocalMaintenanceProgress } from '@/features/maintenance/maintenanceProgress';
+import { isProjectMaintenance } from '@/features/maintenance/maintenanceProject';
 import { useSync } from '@/sync/SyncProvider';
 import { colors, radius, sizing, spacing } from '@/theme/tokens';
 import {
   Redirect,
   Stack,
+  useFocusEffect,
   useLocalSearchParams,
   useRouter,
 } from 'expo-router';
@@ -169,6 +172,7 @@ export default function MaintenanceDetailScreen() {
   const [detail, setDetail] = useState<LocalMaintenanceDetail | null>(null);
   const [clientLocations, setClientLocations] = useState<RecordLike[]>([]);
   const [equipmentLocations, setEquipmentLocations] = useState<RecordLike[]>([]);
+  const [deviceTypes, setDeviceTypes] = useState<RecordLike[]>([]);
   const [loading, setLoading] = useState(true);
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
@@ -195,10 +199,16 @@ export default function MaintenanceDetailScreen() {
       setDetail(localDetail);
 
       if (!localDetail) {
+        setDeviceTypes([]);
         setClientLocations([]);
         setEquipmentLocations([]);
         return;
       }
+
+      // El catálogo sincronizado está en SQLite y se lee una sola vez,
+      // sin consultas individuales por tarjeta ni acceso remoto al renderizar.
+      const localTypes = await listResourceItems(db, dataScope, 'deviceType');
+      setDeviceTypes(localTypes);
 
       const maintenance = localDetail.mantenimiento;
       const clientId = first(
@@ -255,15 +265,17 @@ export default function MaintenanceDetailScreen() {
     setDetail(null);
     setClientLocations([]);
     setEquipmentLocations([]);
+    setDeviceTypes([]);
     setOpenLocations(new Set());
     setDownloadRequested(false);
     setDownloadingDetail(false);
     downloadPromptedRef.current = false;
   }, [dataScope, maintenanceId]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    // Tras edición, alta masiva o borrado offline, vuelve a leer el detalle local.
     load().catch(() => undefined);
-  }, [load, lastSuccessAt]);
+  }, [load, lastSuccessAt]));
 
   useEffect(() => {
     if (
@@ -340,6 +352,14 @@ export default function MaintenanceDetailScreen() {
   ]);
 
   const maintenance = detail?.mantenimiento || {};
+  const localProgress = useMemo(
+    () => buildLocalMaintenanceProgress(
+      maintenance,
+      detail?.detailComplete ? detail.dispositivos : [],
+      deviceTypes,
+    ),
+    [maintenance, detail?.detailComplete, detail?.dispositivos, deviceTypes],
+  );
 
   const maintenanceLocations = useMemo(
     () => maintenanceEquipmentLocationsFromRecord(maintenance),
@@ -546,11 +566,7 @@ export default function MaintenanceDetailScreen() {
   }
 
   const status = normalizeMaintenanceStatus(maintenance.Estado);
-  const expected = expectedDeviceTotal(maintenance);
   const registered = detail.dispositivos.length;
-  const progress = expected > 0
-    ? Math.min(100, Math.round((registered / expected) * 100))
-    : 0;
   const canEdit = canEditMaintenance(permissions);
   const readOnly = maintenanceReadOnly(permissions, maintenance.Estado);
   const linkedLocationIds = new Set(
@@ -771,26 +787,11 @@ export default function MaintenanceDetailScreen() {
               </View>
             ) : null}
 
-            <View style={styles.progressCard}>
-              <View style={styles.progressHeader}>
-                <View>
-                  <Text style={styles.sectionEyebrow}>Avance del inventario</Text>
-                  <Text style={styles.progressTitle}>Dispositivos registrados</Text>
-                </View>
-                <Text style={styles.progressPercent}>{progress}%</Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View style={[
-                  styles.progressFill,
-                  { width: `${progress}%` as `${number}%` },
-                ]} />
-              </View>
-              <Text style={styles.progressCaption}>
-                {expected > 0
-                  ? `${registered} de ${expected} dispositivos registrados`
-                  : `${registered} dispositivo${registered === 1 ? '' : 's'} registrado${registered === 1 ? '' : 's'}`}
-              </Text>
-            </View>
+            <MaintenanceProgressSummary
+              progress={localProgress}
+              detailComplete={detail.detailComplete}
+              projectMode={isProjectMaintenance(maintenance.TipoMantenimiento)}
+            />
 
             <View style={styles.inventoryHeading}>
               <View>
@@ -1034,47 +1035,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 11,
     fontWeight: '800',
-  },
-  progressCard: {
-    marginHorizontal: spacing.md,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 1,
-    borderColor: colors.outlineSoft,
-    gap: spacing.sm,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  progressTitle: {
-    color: colors.text,
-    fontWeight: '900',
-    fontSize: 16,
-    marginTop: 3,
-  },
-  progressPercent: {
-    color: colors.primary,
-    fontWeight: '900',
-    fontSize: 24,
-  },
-  progressTrack: {
-    height: 8,
-    borderRadius: 999,
-    overflow: 'hidden',
-    backgroundColor: colors.surfaceHigh,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-  },
-  progressCaption: {
-    color: colors.muted,
-    fontSize: 11,
   },
   inventoryHeading: {
     marginHorizontal: spacing.md,
